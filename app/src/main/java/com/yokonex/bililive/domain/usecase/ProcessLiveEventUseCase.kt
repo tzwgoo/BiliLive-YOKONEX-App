@@ -1,0 +1,108 @@
+package com.yokonex.bililive.domain.usecase
+
+import com.yokonex.bililive.data.bluetooth.BluetoothRepository
+import com.yokonex.bililive.data.websocket.CommandSocketClient
+import com.yokonex.bililive.domain.model.LiveEvent
+import com.yokonex.bililive.domain.model.OutputAction
+import com.yokonex.bililive.domain.model.OutputMode
+import com.yokonex.bililive.domain.model.TriggerRule
+import com.yokonex.bililive.domain.rule.RuleMatcher
+
+class ProcessLiveEventUseCase(
+    private val ruleRepository: RuleRepository,
+    private val outputModeProvider: OutputModeProvider,
+    private val bluetoothRepository: BluetoothRepository,
+    private val commandSocketClient: CommandSocketClient,
+    private val eventLogRepository: EventLogRepository,
+) {
+    suspend operator fun invoke(event: LiveEvent) {
+        val outputMode = outputModeProvider.getCurrentMode()
+        val matchedRule = ruleRepository
+            .getEnabledRules()
+            .firstOrNull { rule -> RuleMatcher.matches(rule, event) }
+
+        if (matchedRule == null) {
+            eventLogRepository.record(
+                ProcessedEventRecord(
+                    eventId = event.id,
+                    matchedRuleId = null,
+                    outputMode = outputMode,
+                    outputSuccess = false,
+                    outputMessage = "no_matching_rule",
+                ),
+            )
+            return
+        }
+
+        val action = RuleMatcher.resolveAction(matchedRule, outputMode)
+        if (action == null) {
+            eventLogRepository.record(
+                ProcessedEventRecord(
+                    eventId = event.id,
+                    matchedRuleId = matchedRule.id,
+                    outputMode = outputMode,
+                    outputSuccess = false,
+                    outputMessage = "no_action_binding",
+                ),
+            )
+            return
+        }
+
+        runCatching { executeAction(action) }
+            .onSuccess {
+                eventLogRepository.record(
+                    ProcessedEventRecord(
+                        eventId = event.id,
+                        matchedRuleId = matchedRule.id,
+                        outputMode = outputMode,
+                        outputSuccess = true,
+                        outputMessage = "ok",
+                    ),
+                )
+            }
+            .onFailure { error ->
+                eventLogRepository.record(
+                    ProcessedEventRecord(
+                        eventId = event.id,
+                        matchedRuleId = matchedRule.id,
+                        outputMode = outputMode,
+                        outputSuccess = false,
+                        outputMessage = error.message ?: "unknown_error",
+                    ),
+                )
+            }
+    }
+
+    private suspend fun executeAction(action: OutputAction) {
+        when (action) {
+            is OutputAction.BluetoothWaveformAction -> {
+                bluetoothRepository.playWaveform(action.waveformId)
+            }
+
+            is OutputAction.WebSocketCommandAction -> {
+                commandSocketClient.sendCommand(action.commandSlot)
+            }
+        }
+    }
+}
+
+interface RuleRepository {
+    suspend fun getEnabledRules(): List<TriggerRule>
+}
+
+interface OutputModeProvider {
+    suspend fun getCurrentMode(): OutputMode
+}
+
+interface EventLogRepository {
+    suspend fun record(record: ProcessedEventRecord)
+}
+
+data class ProcessedEventRecord(
+    val eventId: String,
+    val matchedRuleId: String?,
+    val outputMode: OutputMode,
+    val outputSuccess: Boolean,
+    val outputMessage: String,
+)
+

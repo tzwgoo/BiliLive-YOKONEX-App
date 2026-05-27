@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.yokonex.bililive.AppServices
 import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.app.ui.components.UiEventLog
+import com.yokonex.bililive.data.storage.JsonEventLogStore
 import com.yokonex.bililive.domain.model.OutputMode
 import com.yokonex.bililive.domain.usecase.StartMonitoringUseCase
 import com.yokonex.bililive.domain.usecase.StopMonitoringUseCase
+import com.yokonex.bililive.service.LiveMonitorService
 import com.yokonex.bililive.service.ServiceCoordinator
 import com.yokonex.bililive.service.ServiceStatus
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +22,7 @@ import kotlinx.coroutines.launch
 class DashboardViewModel(
     private val serviceCoordinator: ServiceCoordinator = AppServices.container?.serviceCoordinator ?: ServiceCoordinator(),
     private val settingsStore: SettingsStore? = AppServices.container?.settingsStore,
+    private val eventLogStore: JsonEventLogStore? = AppServices.container?.eventLogStore,
 ) : ViewModel() {
     private val startMonitoringUseCase = StartMonitoringUseCase(serviceCoordinator)
     private val stopMonitoringUseCase = StopMonitoringUseCase(serviceCoordinator)
@@ -51,14 +54,47 @@ class DashboardViewModel(
                 }
             }
         }
+        eventLogStore?.let { store ->
+            viewModelScope.launch {
+                store.logs.collect { logs ->
+                    _uiState.update { currentState ->
+                        currentState.copy(
+                            recentEvents = logs.take(3).map { log ->
+                                UiEventLog(
+                                    id = log.id,
+                                    title = log.eventType,
+                                    detail = log.summary,
+                                    timestampLabel = log.createdAt.toString(),
+                                    statusLabel = if (log.outputSuccess) "成功" else "失败",
+                                    success = log.outputSuccess,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun toggleMonitoring() {
         viewModelScope.launch {
-            if (_uiState.value.isMonitoring) {
-                stopMonitoringUseCase()
+            val appContext = AppServices.applicationContext
+            if (appContext != null) {
+                if (_uiState.value.isMonitoring) {
+                    LiveMonitorService.stopService(appContext)
+                } else {
+                    LiveMonitorService.startService(
+                        context = appContext,
+                        roomId = _uiState.value.roomId,
+                        outputMode = _uiState.value.outputMode,
+                    )
+                }
             } else {
-                startMonitoringUseCase()
+                if (_uiState.value.isMonitoring) {
+                    stopMonitoringUseCase()
+                } else {
+                    startMonitoringUseCase()
+                }
             }
         }
     }

@@ -21,6 +21,8 @@ class DefaultBluetoothRepository(
 ) : BluetoothRepository {
     private val _connectionState = MutableStateFlow(BluetoothConnectionState.DISCONNECTED)
     override val connectionState: StateFlow<BluetoothConnectionState> = _connectionState.asStateFlow()
+    private val _devices = MutableStateFlow<List<BluetoothDevice>>(emptyList())
+    override val devices: StateFlow<List<BluetoothDevice>> = _devices.asStateFlow()
 
     private var lastScannedDevices: List<BluetoothDevice> = emptyList()
     private var connectedDevice: BluetoothDevice? = null
@@ -29,7 +31,8 @@ class DefaultBluetoothRepository(
         _connectionState.value = BluetoothConnectionState.SCANNING
         return runCatching { bleManager.scan() }
             .onSuccess { devices ->
-                lastScannedDevices = devices
+                lastScannedDevices = markConnectedDevice(devices, connectedDevice?.id)
+                _devices.value = lastScannedDevices
                 _connectionState.value = if (connectedDevice == null) {
                     BluetoothConnectionState.DISCONNECTED
                 } else {
@@ -48,7 +51,9 @@ class DefaultBluetoothRepository(
         _connectionState.value = BluetoothConnectionState.CONNECTING
         runCatching {
             bleManager.connect(deviceId)
-            connectedDevice = device
+            connectedDevice = device.copy(connected = true)
+            lastScannedDevices = markConnectedDevice(lastScannedDevices, deviceId)
+            _devices.value = lastScannedDevices
             settingsStore.updateRecentDeviceId(deviceId)
             if (device.protocol == "ems_v2") {
                 bleManager.write(protocolEncoder.createBatteryQueryPacket())
@@ -56,6 +61,8 @@ class DefaultBluetoothRepository(
             _connectionState.value = BluetoothConnectionState.CONNECTED
         }.getOrElse { error ->
             connectedDevice = null
+            lastScannedDevices = markConnectedDevice(lastScannedDevices, null)
+            _devices.value = lastScannedDevices
             _connectionState.value = BluetoothConnectionState.ERROR
             throw error
         }
@@ -64,6 +71,8 @@ class DefaultBluetoothRepository(
     override suspend fun disconnect() {
         runCatching { bleManager.disconnect() }
         connectedDevice = null
+        lastScannedDevices = markConnectedDevice(lastScannedDevices, null)
+        _devices.value = lastScannedDevices
         _connectionState.value = BluetoothConnectionState.DISCONNECTED
     }
 
@@ -78,4 +87,12 @@ class DefaultBluetoothRepository(
             protocol = device.protocol,
         )
     }
+
+    private fun markConnectedDevice(
+        devices: List<BluetoothDevice>,
+        connectedDeviceId: String?,
+    ): List<BluetoothDevice> =
+        devices.map { device ->
+            device.copy(connected = device.id == connectedDeviceId)
+        }
 }

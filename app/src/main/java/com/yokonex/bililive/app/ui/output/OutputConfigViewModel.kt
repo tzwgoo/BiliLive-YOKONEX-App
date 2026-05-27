@@ -3,6 +3,9 @@ package com.yokonex.bililive.app.ui.output
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yokonex.bililive.AppServices
+import com.yokonex.bililive.data.bluetooth.BluetoothRepository
+import com.yokonex.bililive.data.websocket.CommandSocketClient
+import com.yokonex.bililive.data.websocket.CommandSocketState
 import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.domain.model.OutputMode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +17,8 @@ import kotlinx.coroutines.launch
 
 class OutputConfigViewModel(
     private val settingsStore: SettingsStore? = AppServices.container?.settingsStore,
+    private val bluetoothRepository: BluetoothRepository? = AppServices.container?.bluetoothRepository,
+    private val commandSocketClient: CommandSocketClient? = AppServices.container?.commandSocketClient,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(OutputConfigUiState())
     val uiState: StateFlow<OutputConfigUiState> = _uiState.asStateFlow()
@@ -45,6 +50,36 @@ class OutputConfigViewModel(
                 store.websocketToken.collect { token ->
                     _uiState.update { currentState ->
                         currentState.copy(socketToken = token)
+                    }
+                }
+            }
+        }
+        bluetoothRepository?.let { repository ->
+            viewModelScope.launch {
+                repository.devices.collect { devices ->
+                    _uiState.update { currentState ->
+                        currentState.copy(
+                            bluetoothDevices = devices.map { device ->
+                                UiBluetoothDevice(
+                                    id = device.id,
+                                    name = device.name,
+                                    protocol = device.protocol,
+                                    connected = device.connected,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+            viewModelScope.launch {
+                runCatching { repository.scan() }
+            }
+        }
+        commandSocketClient?.let { client ->
+            viewModelScope.launch {
+                client.connectionState.collect { state ->
+                    _uiState.update { currentState ->
+                        currentState.copy(websocketStatus = state.toDisplayLabel())
                     }
                 }
             }
@@ -130,3 +165,11 @@ private fun sampleBluetoothDevices(): List<UiBluetoothDevice> = listOf(
         connected = false,
     ),
 )
+
+private fun CommandSocketState.toDisplayLabel(): String =
+    when (this) {
+        CommandSocketState.DISCONNECTED -> "未连接"
+        CommandSocketState.CONNECTING -> "连接中"
+        CommandSocketState.CONNECTED -> "已连接"
+        CommandSocketState.ERROR -> "连接异常"
+    }

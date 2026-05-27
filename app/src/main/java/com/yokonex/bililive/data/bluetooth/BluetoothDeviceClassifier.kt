@@ -22,6 +22,7 @@ class BluetoothDeviceClassifier {
             name = name,
             protocol = protocol,
             serviceUuids = serviceUuids,
+            connected = false,
         )
     }
 

@@ -3,16 +3,21 @@ package com.yokonex.bililive
 import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.yokonex.bililive.data.bluetooth.AndroidBleManager
+import com.yokonex.bililive.data.bluetooth.BluetoothRepository
 import com.yokonex.bililive.data.bluetooth.DefaultBluetoothRepository
 import com.yokonex.bililive.data.bluetooth.EmsProtocolEncoder
 import com.yokonex.bililive.data.bluetooth.EmsWaveformRuntime
 import com.yokonex.bililive.data.bluetooth.PlatformAndroidBleManager
 import com.yokonex.bililive.data.live.RealThirdPartyLiveGateway
+import com.yokonex.bililive.data.mapper.RuleMapper
 import com.yokonex.bililive.data.mapper.WaveformMapper
 import com.yokonex.bililive.data.storage.DefaultWaveforms
+import com.yokonex.bililive.data.storage.JsonEventLogStore
+import com.yokonex.bililive.data.storage.JsonRuleStore
+import com.yokonex.bililive.data.storage.JsonWaveformDao
 import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.data.storage.dao.WaveformDao
-import com.yokonex.bililive.data.storage.entity.WaveformEntity
+import com.yokonex.bililive.data.websocket.CommandSocketClient
 import com.yokonex.bililive.data.websocket.OkHttpCommandSocketClient
 import com.yokonex.bililive.domain.model.ActionBindings
 import com.yokonex.bililive.domain.model.KeywordMatchMode
@@ -21,11 +26,8 @@ import com.yokonex.bililive.domain.model.OutputAction
 import com.yokonex.bililive.domain.model.OutputMode
 import com.yokonex.bililive.domain.model.RuleConditions
 import com.yokonex.bililive.domain.model.TriggerRule
-import com.yokonex.bililive.domain.usecase.EventLogRepository
 import com.yokonex.bililive.domain.usecase.OutputModeProvider
 import com.yokonex.bililive.domain.usecase.ProcessLiveEventUseCase
-import com.yokonex.bililive.domain.usecase.ProcessedEventRecord
-import com.yokonex.bililive.domain.usecase.RuleRepository
 import com.yokonex.bililive.service.MonitoringConfig
 import com.yokonex.bililive.service.MonitoringConfigProvider
 import com.yokonex.bililive.service.ServiceCoordinator
@@ -33,8 +35,6 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -50,13 +50,21 @@ class AppContainer(
     )
     val settingsStore = SettingsStore(dataStore)
 
-    private val waveformDao: WaveformDao = InMemoryWaveformDao(
-        DefaultWaveforms.all.map(WaveformMapper::toEntity),
+    private val waveformDao: WaveformDao = JsonWaveformDao(
+        file = File(context.filesDir, "storage/waveforms.json"),
+        defaultWaveforms = DefaultWaveforms.all.map(WaveformMapper::toEntity),
+    )
+    val ruleStore = JsonRuleStore(
+        file = File(context.filesDir, "storage/rules.json"),
+        defaultRules = buildDefaultRules(),
+    )
+    val eventLogStore = JsonEventLogStore(
+        file = File(context.filesDir, "storage/event_logs.json"),
     )
     private val bleManager: AndroidBleManager = PlatformAndroidBleManager(context.applicationContext)
     private val protocolEncoder = EmsProtocolEncoder()
-    private val commandSocketClient = OkHttpCommandSocketClient()
-    private val bluetoothRepository = DefaultBluetoothRepository(
+    val commandSocketClient: CommandSocketClient = OkHttpCommandSocketClient()
+    val bluetoothRepository: BluetoothRepository = DefaultBluetoothRepository(
         bleManager = bleManager,
         waveformDao = waveformDao,
         settingsStore = settingsStore,
@@ -64,11 +72,11 @@ class AppContainer(
         protocolEncoder = protocolEncoder,
     )
     private val processLiveEventUseCase = ProcessLiveEventUseCase(
-        ruleRepository = DefaultRuleRepository(),
+        ruleRepository = ruleStore,
         outputModeProvider = SettingsOutputModeProvider(settingsStore),
         bluetoothRepository = bluetoothRepository,
         commandSocketClient = commandSocketClient,
-        eventLogRepository = InMemoryEventLogRepository(),
+        eventLogRepository = eventLogStore,
     )
 
     val serviceCoordinator = ServiceCoordinator(
@@ -86,6 +94,7 @@ class AppContainer(
 }
 
 object AppServices {
+    var applicationContext: Context? = null
     var container: AppContainer? = null
 }
 
@@ -108,36 +117,6 @@ private class SettingsOutputModeProvider(
 ) : OutputModeProvider {
     override suspend fun getCurrentMode(): OutputMode =
         settingsStore.outputMode.first()
-}
-
-private class InMemoryEventLogRepository : EventLogRepository {
-    private val records = mutableListOf<ProcessedEventRecord>()
-
-    override suspend fun record(record: ProcessedEventRecord) {
-        records += record
-    }
-}
-
-private class DefaultRuleRepository : RuleRepository {
-    override suspend fun getEnabledRules(): List<TriggerRule> =
-        buildDefaultRules().filter(TriggerRule::enabled)
-}
-
-private class InMemoryWaveformDao(
-    initial: List<WaveformEntity>,
-) : WaveformDao {
-    private val state = MutableStateFlow(initial)
-
-    override fun observeAll(): Flow<List<WaveformEntity>> = state
-
-    override suspend fun count(): Int = state.value.size
-
-    override suspend fun insertAll(waveforms: List<WaveformEntity>) {
-        state.value = state.value + waveforms
-    }
-
-    override suspend fun findById(id: String): WaveformEntity? =
-        state.value.firstOrNull { it.id == id }
 }
 
 private fun buildDefaultRules(): List<TriggerRule> {

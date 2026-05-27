@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 interface BluetoothRepository {
     val connectionState: StateFlow<BluetoothConnectionState>
+    val devices: StateFlow<List<BluetoothDevice>>
 
     suspend fun scan(): List<BluetoothDevice>
 
@@ -15,4 +16,3 @@ interface BluetoothRepository {
 
     suspend fun playWaveform(waveformId: String)
 }
-

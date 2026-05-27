@@ -5,5 +5,5 @@ data class BluetoothDevice(
     val name: String,
     val protocol: String,
     val serviceUuids: Set<String> = emptySet(),
+    val connected: Boolean = false,
 )
-

@@ -132,6 +132,8 @@ class ProcessLiveEventUseCaseTest {
     ) : BluetoothRepository {
         override val connectionState: StateFlow<BluetoothConnectionState> =
             MutableStateFlow(BluetoothConnectionState.DISCONNECTED)
+        override val devices: StateFlow<List<BluetoothDevice>> =
+            MutableStateFlow(emptyList())
 
         val playedWaveforms = mutableListOf<String>()
 

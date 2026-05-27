@@ -1,0 +1,58 @@
+package com.yokonex.bililive.data.storage
+
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.yokonex.bililive.data.storage.dao.WaveformDao
+import com.yokonex.bililive.data.storage.entity.WaveformEntity
+import com.yokonex.bililive.domain.model.OutputMode
+import java.nio.file.Files
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class SettingsStoreTest {
+
+    @Test
+    fun defaultWaveforms_areSeededOnFirstLaunch() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("settings-store", ".preferences_pb").toFile()
+            },
+        )
+        val settingsStore = SettingsStore(dataStore)
+        val waveformDao = FakeWaveformDao()
+        val bootstrapper = StorageBootstrapper(
+            settingsStore = settingsStore,
+            waveformDao = waveformDao,
+        )
+
+        bootstrapper.seedDefaultsIfNeeded()
+
+        val waveforms = waveformDao.observeAll().first()
+        assertTrue(waveforms.isNotEmpty())
+        assertEquals("", settingsStore.roomId.first())
+        assertEquals(OutputMode.BLUETOOTH, settingsStore.outputMode.first())
+    }
+
+    private class FakeWaveformDao : WaveformDao {
+        private val state = MutableStateFlow<List<WaveformEntity>>(emptyList())
+
+        override fun observeAll(): Flow<List<WaveformEntity>> = state
+
+        override suspend fun count(): Int = state.value.size
+
+        override suspend fun insertAll(waveforms: List<WaveformEntity>) {
+            state.update { current ->
+                current + waveforms
+            }
+        }
+
+        override suspend fun findById(id: String): WaveformEntity? =
+            state.value.firstOrNull { it.id == id }
+    }
+}

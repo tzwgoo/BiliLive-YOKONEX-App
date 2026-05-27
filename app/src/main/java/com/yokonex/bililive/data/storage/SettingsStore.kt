@@ -33,6 +33,30 @@ class SettingsStore(
             preferences[RECENT_DEVICE_ID]
         }
 
+    val websocketEndpoint: Flow<String> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { preferences ->
+            preferences[WEBSOCKET_ENDPOINT] ?: ""
+        }
+
+    val websocketUid: Flow<String> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { preferences ->
+            preferences[WEBSOCKET_UID] ?: ""
+        }
+
+    val websocketToken: Flow<String> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { preferences ->
+            preferences[WEBSOCKET_TOKEN] ?: ""
+        }
+
+    val reconnectIntervalSeconds: Flow<Int> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { preferences ->
+            preferences[RECONNECT_INTERVAL_SECONDS]?.toIntOrNull()?.coerceAtLeast(1) ?: 3
+        }
+
     suspend fun updateRoomId(value: String) {
         dataStore.edit { preferences ->
             preferences[ROOM_ID] = value
@@ -55,6 +79,30 @@ class SettingsStore(
         }
     }
 
+    suspend fun updateWebSocketEndpoint(value: String) {
+        dataStore.edit { preferences ->
+            preferences[WEBSOCKET_ENDPOINT] = value.trim()
+        }
+    }
+
+    suspend fun updateWebSocketUid(value: String) {
+        dataStore.edit { preferences ->
+            preferences[WEBSOCKET_UID] = value.trim()
+        }
+    }
+
+    suspend fun updateWebSocketToken(value: String) {
+        dataStore.edit { preferences ->
+            preferences[WEBSOCKET_TOKEN] = value.trim()
+        }
+    }
+
+    suspend fun updateReconnectIntervalSeconds(value: Int) {
+        dataStore.edit { preferences ->
+            preferences[RECONNECT_INTERVAL_SECONDS] = value.coerceAtLeast(1).toString()
+        }
+    }
+
     suspend fun ensureDefaults() {
         dataStore.edit { preferences ->
             if (!preferences.contains(ROOM_ID)) {
@@ -63,6 +111,18 @@ class SettingsStore(
             if (!preferences.contains(OUTPUT_MODE)) {
                 preferences[OUTPUT_MODE] = OutputMode.BLUETOOTH.name
             }
+            if (!preferences.contains(WEBSOCKET_ENDPOINT)) {
+                preferences[WEBSOCKET_ENDPOINT] = ""
+            }
+            if (!preferences.contains(WEBSOCKET_UID)) {
+                preferences[WEBSOCKET_UID] = ""
+            }
+            if (!preferences.contains(WEBSOCKET_TOKEN)) {
+                preferences[WEBSOCKET_TOKEN] = ""
+            }
+            if (!preferences.contains(RECONNECT_INTERVAL_SECONDS)) {
+                preferences[RECONNECT_INTERVAL_SECONDS] = "3"
+            }
         }
     }
 
@@ -70,6 +130,9 @@ class SettingsStore(
         val ROOM_ID = stringPreferencesKey("room_id")
         val OUTPUT_MODE = stringPreferencesKey("output_mode")
         val RECENT_DEVICE_ID = stringPreferencesKey("recent_device_id")
+        val WEBSOCKET_ENDPOINT = stringPreferencesKey("websocket_endpoint")
+        val WEBSOCKET_UID = stringPreferencesKey("websocket_uid")
+        val WEBSOCKET_TOKEN = stringPreferencesKey("websocket_token")
+        val RECONNECT_INTERVAL_SECONDS = stringPreferencesKey("reconnect_interval_seconds")
     }
 }
-

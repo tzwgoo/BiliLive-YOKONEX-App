@@ -24,6 +24,7 @@ fun OutputConfigScreen(
     uiState: OutputConfigUiState,
     onOutputModeChange: (OutputMode) -> Unit,
     onSocketEndpointChange: (String) -> Unit,
+    onSocketUidChange: (String) -> Unit,
     onSocketTokenChange: (String) -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
@@ -99,6 +100,15 @@ fun OutputConfigScreen(
                     value = uiState.socketEndpoint,
                     onValueChange = onSocketEndpointChange,
                     label = { Text("服务地址") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = uiState.socketUid,
+                    onValueChange = onSocketUidChange,
+                    label = { Text("登录 UID") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )

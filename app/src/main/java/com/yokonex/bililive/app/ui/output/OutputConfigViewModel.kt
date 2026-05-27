@@ -1,31 +1,101 @@
 package com.yokonex.bililive.app.ui.output
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.yokonex.bililive.AppServices
+import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.domain.model.OutputMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
-class OutputConfigViewModel : ViewModel() {
+class OutputConfigViewModel(
+    private val settingsStore: SettingsStore? = AppServices.container?.settingsStore,
+) : ViewModel() {
     private val _uiState = MutableStateFlow(OutputConfigUiState())
     val uiState: StateFlow<OutputConfigUiState> = _uiState.asStateFlow()
 
+    init {
+        settingsStore?.let { store ->
+            viewModelScope.launch {
+                store.outputMode.collect { mode ->
+                    _uiState.update { currentState ->
+                        currentState.copy(outputMode = mode)
+                    }
+                }
+            }
+            viewModelScope.launch {
+                store.websocketEndpoint.collect { endpoint ->
+                    _uiState.update { currentState ->
+                        currentState.copy(socketEndpoint = endpoint)
+                    }
+                }
+            }
+            viewModelScope.launch {
+                store.websocketUid.collect { uid ->
+                    _uiState.update { currentState ->
+                        currentState.copy(socketUid = uid)
+                    }
+                }
+            }
+            viewModelScope.launch {
+                store.websocketToken.collect { token ->
+                    _uiState.update { currentState ->
+                        currentState.copy(socketToken = token)
+                    }
+                }
+            }
+        }
+    }
+
     fun selectMode(mode: OutputMode) {
-        _uiState.update { currentState ->
-            currentState.copy(outputMode = mode)
+        if (settingsStore == null) {
+            _uiState.update { currentState ->
+                currentState.copy(outputMode = mode)
+            }
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateOutputMode(mode)
         }
     }
 
     fun updateSocketEndpoint(endpoint: String) {
-        _uiState.update { currentState ->
-            currentState.copy(socketEndpoint = endpoint)
+        if (settingsStore == null) {
+            _uiState.update { currentState ->
+                currentState.copy(socketEndpoint = endpoint)
+            }
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateWebSocketEndpoint(endpoint)
+        }
+    }
+
+    fun updateSocketUid(uid: String) {
+        if (settingsStore == null) {
+            _uiState.update { currentState ->
+                currentState.copy(socketUid = uid)
+            }
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateWebSocketUid(uid)
         }
     }
 
     fun updateSocketToken(token: String) {
-        _uiState.update { currentState ->
-            currentState.copy(socketToken = token)
+        if (settingsStore == null) {
+            _uiState.update { currentState ->
+                currentState.copy(socketToken = token)
+            }
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateWebSocketToken(token)
         }
     }
 }
@@ -34,6 +104,7 @@ data class OutputConfigUiState(
     val outputMode: OutputMode = OutputMode.BLUETOOTH,
     val bluetoothDevices: List<UiBluetoothDevice> = sampleBluetoothDevices(),
     val socketEndpoint: String = "ws://192.168.1.21:9001/live",
+    val socketUid: String = "",
     val socketToken: String = "demo-token",
     val websocketStatus: String = "未连接",
 )

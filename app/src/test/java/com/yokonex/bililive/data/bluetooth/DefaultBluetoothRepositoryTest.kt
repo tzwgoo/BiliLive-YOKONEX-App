@@ -1,0 +1,172 @@
+package com.yokonex.bililive.data.bluetooth
+
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.yokonex.bililive.data.mapper.WaveformMapper
+import com.yokonex.bililive.data.storage.SettingsStore
+import com.yokonex.bililive.data.storage.dao.WaveformDao
+import com.yokonex.bililive.data.storage.entity.WaveformEntity
+import com.yokonex.bililive.data.bluetooth.model.BluetoothConnectionState
+import com.yokonex.bililive.data.bluetooth.model.BluetoothDevice
+import com.yokonex.bililive.domain.model.WaveformDefinition
+import com.yokonex.bililive.domain.model.WaveformStep
+import java.nio.file.Files
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DefaultBluetoothRepositoryTest {
+
+    @Test
+    fun connect_updatesStateAndPersistsRecentDevice() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("bt-repo", ".preferences_pb").toFile()
+            },
+        )
+        val settingsStore = SettingsStore(dataStore)
+        val bleManager = FakeAndroidBleManager(
+            devices = listOf(
+                BluetoothDevice(
+                    id = "AA:BB:CC:01",
+                    name = "YYC-DJ-V2-001",
+                    protocol = "ems_v2",
+                ),
+            ),
+        )
+        val repository = DefaultBluetoothRepository(
+            bleManager = bleManager,
+            waveformDao = FakeWaveformDao(),
+            settingsStore = settingsStore,
+            waveformRuntime = EmsWaveformRuntime(bleManager, EmsProtocolEncoder()),
+            protocolEncoder = EmsProtocolEncoder(),
+        )
+
+        repository.scan()
+        repository.connect("AA:BB:CC:01")
+
+        assertEquals(BluetoothConnectionState.CONNECTED, repository.connectionState.value)
+        assertEquals("AA:BB:CC:01", settingsStore.recentDeviceId.first())
+        assertArrayEquals(
+            byteArrayOf(0x35, 0x71, 0x04, 0xAA.toByte()),
+            bleManager.writes.first(),
+        )
+    }
+
+    @Test
+    fun playWaveform_loadsStoredWaveformAndWritesPackets() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("bt-repo", ".preferences_pb").toFile()
+            },
+        )
+        val waveform = WaveformDefinition(
+            id = "custom-wave",
+            name = "自定义波形",
+            builtin = false,
+            steps = listOf(
+                WaveformStep(
+                    durationMs = 120,
+                    channelA = 48,
+                    channelB = 24,
+                    channelAMode = 0x11,
+                    channelAFrequency = 10,
+                    channelAPulseWidth = 5,
+                ),
+            ),
+        )
+        val bleManager = FakeAndroidBleManager(
+            devices = listOf(
+                BluetoothDevice(
+                    id = "AA:BB:CC:02",
+                    name = "YYC-DJ-Classic",
+                    protocol = "ems_v1",
+                ),
+            ),
+        )
+        val repository = DefaultBluetoothRepository(
+            bleManager = bleManager,
+            waveformDao = FakeWaveformDao(
+                listOf(WaveformMapper.toEntity(waveform)),
+            ),
+            settingsStore = SettingsStore(dataStore),
+            waveformRuntime = EmsWaveformRuntime(bleManager, EmsProtocolEncoder()),
+            protocolEncoder = EmsProtocolEncoder(),
+        )
+
+        repository.scan()
+        repository.connect("AA:BB:CC:02")
+        repository.playWaveform("custom-wave")
+
+        assertTrue(bleManager.writes.size >= 2)
+        assertArrayEquals(
+            byteArrayOf(
+                0x35,
+                0x11,
+                0x03,
+                0x01,
+                0x00,
+                0x30,
+                0x11,
+                0x0A,
+                0x05,
+                0x9A.toByte(),
+            ),
+            bleManager.writes.first(),
+        )
+        assertArrayEquals(
+            byteArrayOf(
+                0x35,
+                0x11,
+                0x03,
+                0x00,
+                0x00,
+                0x01,
+                0x01,
+                0x00,
+                0x00,
+                0x4B,
+            ),
+            bleManager.writes.last(),
+        )
+    }
+}
+
+private class FakeAndroidBleManager(
+    private val devices: List<BluetoothDevice>,
+) : AndroidBleManager {
+    val writes = mutableListOf<ByteArray>()
+
+    override suspend fun scan(): List<BluetoothDevice> = devices
+
+    override suspend fun connect(deviceId: String) = Unit
+
+    override suspend fun disconnect() = Unit
+
+    override suspend fun write(packet: ByteArray) {
+        writes += packet
+    }
+}
+
+private class FakeWaveformDao(
+    initial: List<WaveformEntity> = emptyList(),
+) : WaveformDao {
+    private val state = MutableStateFlow(initial)
+
+    override fun observeAll(): Flow<List<WaveformEntity>> = state
+
+    override suspend fun count(): Int = state.value.size
+
+    override suspend fun insertAll(waveforms: List<WaveformEntity>) {
+        state.value = state.value + waveforms
+    }
+
+    override suspend fun findById(id: String): WaveformEntity? =
+        state.value.firstOrNull { it.id == id }
+}

@@ -95,6 +95,7 @@ fun AppNavGraph() {
                         uiState = uiState,
                         onOutputModeChange = outputConfigViewModel::selectMode,
                         onSocketEndpointChange = outputConfigViewModel::updateSocketEndpoint,
+                        onSocketUidChange = outputConfigViewModel::updateSocketUid,
                         onSocketTokenChange = outputConfigViewModel::updateSocketToken,
                         contentPadding = innerPadding,
                     )

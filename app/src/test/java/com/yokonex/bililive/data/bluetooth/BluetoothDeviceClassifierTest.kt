@@ -28,5 +28,15 @@ class BluetoothDeviceClassifierTest {
 
         assertEquals("ems_v1", device.protocol)
     }
-}
 
+    @Test
+    fun classifier_detectsEmsV2FromServiceUuid() {
+        val device = classifier.classify(
+            deviceId = "device-3",
+            name = "Custom EMS Device",
+            serviceUuids = setOf("0000ff30-0000-1000-8000-00805f9b34fb"),
+        )
+
+        assertEquals("ems_v2", device.protocol)
+    }
+}

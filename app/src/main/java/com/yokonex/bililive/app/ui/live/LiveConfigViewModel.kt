@@ -1,18 +1,51 @@
 package com.yokonex.bililive.app.ui.live
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.yokonex.bililive.AppServices
+import com.yokonex.bililive.data.storage.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
-class LiveConfigViewModel : ViewModel() {
+class LiveConfigViewModel(
+    private val settingsStore: SettingsStore? = AppServices.container?.settingsStore,
+) : ViewModel() {
     private val _uiState = MutableStateFlow(LiveConfigUiState())
     val uiState: StateFlow<LiveConfigUiState> = _uiState.asStateFlow()
 
+    init {
+        settingsStore?.let { store ->
+            viewModelScope.launch {
+                store.roomId.collect { roomId ->
+                    _uiState.update { currentState ->
+                        currentState.copy(roomId = roomId)
+                    }
+                }
+            }
+            viewModelScope.launch {
+                store.reconnectIntervalSeconds.collect { seconds ->
+                    _uiState.update { currentState ->
+                        currentState.copy(reconnectIntervalSeconds = seconds.toString())
+                    }
+                }
+            }
+        }
+    }
+
     fun updateRoomId(roomId: String) {
-        _uiState.update { currentState ->
-            currentState.copy(roomId = roomId.filter(Char::isDigit).take(12))
+        val sanitized = roomId.filter(Char::isDigit).take(12)
+        if (settingsStore == null) {
+            _uiState.update { currentState ->
+                currentState.copy(roomId = sanitized)
+            }
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateRoomId(sanitized)
         }
     }
 
@@ -23,8 +56,15 @@ class LiveConfigViewModel : ViewModel() {
     }
 
     fun updateReconnectInterval(value: String) {
-        _uiState.update { currentState ->
-            currentState.copy(reconnectIntervalSeconds = value.filter(Char::isDigit).take(3))
+        val sanitized = value.filter(Char::isDigit).take(3)
+        if (settingsStore == null) {
+            _uiState.update { currentState ->
+                currentState.copy(reconnectIntervalSeconds = sanitized)
+            }
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateReconnectIntervalSeconds(sanitized.toIntOrNull() ?: 3)
         }
     }
 }

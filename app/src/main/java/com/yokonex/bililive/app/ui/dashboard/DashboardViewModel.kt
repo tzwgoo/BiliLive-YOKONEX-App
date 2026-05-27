@@ -2,6 +2,8 @@ package com.yokonex.bililive.app.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yokonex.bililive.AppServices
+import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.app.ui.components.UiEventLog
 import com.yokonex.bililive.domain.model.OutputMode
 import com.yokonex.bililive.domain.usecase.StartMonitoringUseCase
@@ -11,11 +13,14 @@ import com.yokonex.bililive.service.ServiceStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class DashboardViewModel : ViewModel() {
-    private val serviceCoordinator = ServiceCoordinator()
+class DashboardViewModel(
+    private val serviceCoordinator: ServiceCoordinator = AppServices.container?.serviceCoordinator ?: ServiceCoordinator(),
+    private val settingsStore: SettingsStore? = AppServices.container?.settingsStore,
+) : ViewModel() {
     private val startMonitoringUseCase = StartMonitoringUseCase(serviceCoordinator)
     private val stopMonitoringUseCase = StopMonitoringUseCase(serviceCoordinator)
 
@@ -27,6 +32,22 @@ class DashboardViewModel : ViewModel() {
             serviceCoordinator.status.collect { status ->
                 _uiState.update { currentState ->
                     currentState.copy(serviceStatus = status)
+                }
+            }
+        }
+        settingsStore?.let { store ->
+            viewModelScope.launch {
+                store.roomId.collect { roomId ->
+                    _uiState.update { currentState ->
+                        currentState.copy(roomId = roomId)
+                    }
+                }
+            }
+            viewModelScope.launch {
+                store.outputMode.collect { mode ->
+                    _uiState.update { currentState ->
+                        currentState.copy(outputMode = mode)
+                    }
                 }
             }
         }
@@ -43,8 +64,14 @@ class DashboardViewModel : ViewModel() {
     }
 
     fun selectOutputMode(mode: OutputMode) {
-        _uiState.update { currentState ->
-            currentState.copy(outputMode = mode)
+        if (settingsStore == null) {
+            _uiState.update { currentState ->
+                currentState.copy(outputMode = mode)
+            }
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateOutputMode(mode)
         }
     }
 }

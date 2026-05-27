@@ -70,11 +70,11 @@ class ThirdPartyMessageParserTest {
         val rawDanmakuJson = """
             {
               "cmd": "DANMU_MSG",
-              "data": {
-                "uid": "1003",
-                "uname": "弹幕用户",
-                "message": "大家开始冲"
-              }
+              "info": [
+                [0, 0, 0, 0, 1714113037],
+                "大家开始冲",
+                ["1003", "弹幕用户"]
+              ]
             }
         """.trimIndent()
 
@@ -86,5 +86,54 @@ class ThirdPartyMessageParserTest {
         assertEquals("弹幕用户", event.userName)
         assertEquals("大家开始冲", payload.message)
         assertTrue(event.id.startsWith("DANMU_MSG-"))
+    }
+
+    @Test
+    fun parser_mapsComboGiftMessageToLiveEvent() {
+        val rawGiftJson = """
+            {
+              "cmd": "COMBO_SEND",
+              "data": {
+                "uid": "1004",
+                "uname": "连击用户",
+                "gift_name": "牛哇牛哇",
+                "combo_num": 3,
+                "price": 100,
+                "combo_total_coin": 300
+              }
+            }
+        """.trimIndent()
+
+        val event = parser.parse(rawGiftJson)
+        val payload = event.payload as EventPayload.GiftPayload
+
+        assertEquals(LiveEventType.GIFT, event.type)
+        assertEquals("1004", event.userId)
+        assertEquals("连击用户", event.userName)
+        assertEquals("牛哇牛哇", payload.giftName)
+        assertEquals(3, payload.giftNum)
+        assertEquals(100, payload.price)
+        assertEquals(300, payload.totalPrice)
+    }
+
+    @Test
+    fun parser_mapsLikeUpdateMessageToLiveEvent() {
+        val rawLikeJson = """
+            {
+              "cmd": "LIKE_INFO_V3_UPDATE",
+              "data": {
+                "uname": "点赞用户",
+                "click_count": 66
+              }
+            }
+        """.trimIndent()
+
+        val event = parser.parse(rawLikeJson)
+        val payload = event.payload as EventPayload.LikePayload
+
+        assertEquals(LiveEventType.LIKE, event.type)
+        assertEquals("点赞用户", event.userName)
+        assertEquals(66, payload.likeCount)
+        assertEquals("点赞", payload.likeText)
     }
 }

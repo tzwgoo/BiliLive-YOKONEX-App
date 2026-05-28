@@ -3,6 +3,7 @@ package com.yokonex.bililive.domain.usecase
 import com.yokonex.bililive.data.bluetooth.BluetoothRepository
 import com.yokonex.bililive.data.bluetooth.model.BluetoothConnectionState
 import com.yokonex.bililive.data.bluetooth.model.BluetoothDevice
+import com.yokonex.bililive.data.bluetooth.model.BluetoothRuntimeStatus
 import com.yokonex.bililive.domain.model.ActionBindings
 import com.yokonex.bililive.domain.model.EventPayload
 import com.yokonex.bililive.domain.model.LiveEvent
@@ -115,6 +116,163 @@ class ProcessLiveEventUseCaseTest {
         }
     }
 
+    @Test
+    fun processLiveEvent_skipsDanmakuDuringCooldown() = runTest {
+        val bluetoothRepository = FakeBluetoothRepository()
+        val logRepository = FakeEventLogRepository()
+        val useCase = ProcessLiveEventUseCase(
+            ruleRepository = StaticRuleRepository(
+                listOf(
+                    TriggerRule(
+                        id = "danmaku-rule",
+                        name = "弹幕触发蓝牙",
+                        eventType = LiveEventType.DANMAKU,
+                        cooldownSeconds = 5,
+                        conditions = com.yokonex.bililive.domain.model.RuleConditions(
+                            keywords = listOf("开火"),
+                        ),
+                        actionBindings = ActionBindings(
+                            bluetoothAction = com.yokonex.bililive.domain.model.OutputAction.BluetoothWaveformAction(
+                                waveformId = "ems-preset-03",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            outputModeProvider = StaticOutputModeProvider(OutputMode.BLUETOOTH),
+            bluetoothRepository = bluetoothRepository,
+            commandSocketClient = FakeCommandSocketClient(),
+            eventLogRepository = logRepository,
+        )
+
+        val event = LiveEvent(
+            id = "event-danmaku-1",
+            type = LiveEventType.DANMAKU,
+            timestamp = 10L,
+            userId = "1003",
+            userName = "tester",
+            roomId = "2001",
+            payload = EventPayload.DanmakuPayload(message = "开火"),
+        )
+
+        useCase(event)
+        useCase(event.copy(id = "event-danmaku-2", timestamp = 12L))
+
+        assertEquals(listOf("ems-preset-03"), bluetoothRepository.playedWaveforms)
+        assertEquals("cooldown_skipped", logRepository.records.last().outputMessage)
+    }
+
+    @Test
+    fun processLiveEvent_triggersLikeWhenCrossingNewMultipleThreshold() = runTest {
+        val bluetoothRepository = FakeBluetoothRepository()
+        val logRepository = FakeEventLogRepository()
+        val useCase = ProcessLiveEventUseCase(
+            ruleRepository = StaticRuleRepository(
+                listOf(
+                    TriggerRule(
+                        id = "like-rule",
+                        name = "点赞触发蓝牙",
+                        eventType = LiveEventType.LIKE,
+                        conditions = com.yokonex.bililive.domain.model.RuleConditions(
+                            likeMultiple = 10,
+                        ),
+                        actionBindings = ActionBindings(
+                            bluetoothAction = com.yokonex.bililive.domain.model.OutputAction.BluetoothWaveformAction(
+                                waveformId = "ems-preset-01",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            outputModeProvider = StaticOutputModeProvider(OutputMode.BLUETOOTH),
+            bluetoothRepository = bluetoothRepository,
+            commandSocketClient = FakeCommandSocketClient(),
+            eventLogRepository = logRepository,
+        )
+
+        useCase(
+            LiveEvent(
+                id = "event-like-1",
+                type = LiveEventType.LIKE,
+                timestamp = 10L,
+                userId = "1004",
+                userName = "tester",
+                roomId = "2001",
+                payload = EventPayload.LikePayload(
+                    likeCount = 9,
+                    likeText = "点赞了",
+                ),
+            ),
+        )
+        useCase(
+            LiveEvent(
+                id = "event-like-2",
+                type = LiveEventType.LIKE,
+                timestamp = 11L,
+                userId = "1004",
+                userName = "tester",
+                roomId = "2001",
+                payload = EventPayload.LikePayload(
+                    likeCount = 13,
+                    likeText = "点赞了",
+                ),
+            ),
+        )
+
+        assertEquals(listOf("ems-preset-01"), bluetoothRepository.playedWaveforms)
+        assertEquals("ok", logRepository.records.last().outputMessage)
+    }
+
+    @Test
+    fun processLiveEvent_accumulatesLikeDeltaWhenCountUnavailable() = runTest {
+        val bluetoothRepository = FakeBluetoothRepository()
+        val logRepository = FakeEventLogRepository()
+        val useCase = ProcessLiveEventUseCase(
+            ruleRepository = StaticRuleRepository(
+                listOf(
+                    TriggerRule(
+                        id = "like-rule",
+                        name = "点赞触发蓝牙",
+                        eventType = LiveEventType.LIKE,
+                        conditions = com.yokonex.bililive.domain.model.RuleConditions(
+                            likeMultiple = 3,
+                        ),
+                        actionBindings = ActionBindings(
+                            bluetoothAction = com.yokonex.bililive.domain.model.OutputAction.BluetoothWaveformAction(
+                                waveformId = "ems-preset-02",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            outputModeProvider = StaticOutputModeProvider(OutputMode.BLUETOOTH),
+            bluetoothRepository = bluetoothRepository,
+            commandSocketClient = FakeCommandSocketClient(),
+            eventLogRepository = logRepository,
+        )
+
+        repeat(3) { index ->
+            useCase(
+                LiveEvent(
+                    id = "event-like-delta-$index",
+                    type = LiveEventType.LIKE,
+                    timestamp = 20L + index,
+                    userId = "1005",
+                    userName = "tester",
+                    roomId = "2002",
+                    payload = EventPayload.LikePayload(
+                        likeCount = 0,
+                        likeText = "点赞了",
+                        likeDelta = 1,
+                    ),
+                ),
+            )
+        }
+
+        assertEquals(listOf("ems-preset-02"), bluetoothRepository.playedWaveforms)
+        assertEquals("ok", logRepository.records.last().outputMessage)
+    }
+
     private class StaticRuleRepository(
         private val rules: List<TriggerRule>,
     ) : RuleRepository {
@@ -134,6 +292,8 @@ class ProcessLiveEventUseCaseTest {
             MutableStateFlow(BluetoothConnectionState.DISCONNECTED)
         override val devices: StateFlow<List<BluetoothDevice>> =
             MutableStateFlow(emptyList())
+        override val runtimeStatus: StateFlow<BluetoothRuntimeStatus> =
+            MutableStateFlow(BluetoothRuntimeStatus())
 
         val playedWaveforms = mutableListOf<String>()
 

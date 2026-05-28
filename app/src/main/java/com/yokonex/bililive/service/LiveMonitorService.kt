@@ -2,8 +2,10 @@ package com.yokonex.bililive.service
 
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.yokonex.bililive.AppServices
 import com.yokonex.bililive.domain.model.OutputMode
@@ -17,13 +19,14 @@ import kotlinx.coroutines.launch
 class LiveMonitorService : Service() {
     private lateinit var notificationFactory: NotificationFactory
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var hasEnteredForeground: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
         notificationFactory = NotificationFactory(this)
         serviceScope.launch {
             AppServices.container?.serviceCoordinator?.status?.collect { status ->
-                if (status is ServiceStatus.Idle) {
+                if (shouldStopMonitoringService(status, hasEnteredForeground)) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
@@ -49,13 +52,16 @@ class LiveMonitorService : Service() {
         val outputMode = intent?.getStringExtra(EXTRA_OUTPUT_MODE)
             ?.let { name -> runCatching { OutputMode.valueOf(name) }.getOrNull() }
             ?: OutputMode.BLUETOOTH
-        startForeground(
+        ServiceCompat.startForeground(
+            this,
             NotificationFactory.NOTIFICATION_ID,
             notificationFactory.createMonitoringNotification(
                 roomId = roomId,
                 outputMode = outputMode,
             ),
+            outputMode.toForegroundServiceType(),
         )
+        hasEnteredForeground = true
         serviceScope.launch {
             AppServices.container?.serviceCoordinator?.start()
         }
@@ -100,3 +106,14 @@ class LiveMonitorService : Service() {
         }
     }
 }
+
+internal fun shouldStopMonitoringService(
+    status: ServiceStatus,
+    hasEnteredForeground: Boolean,
+): Boolean = hasEnteredForeground && status is ServiceStatus.Idle
+
+private fun OutputMode.toForegroundServiceType(): Int =
+    when (this) {
+        OutputMode.BLUETOOTH -> ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        OutputMode.WEBSOCKET -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+    }

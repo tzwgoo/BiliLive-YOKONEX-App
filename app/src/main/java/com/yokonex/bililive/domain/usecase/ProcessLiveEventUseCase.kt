@@ -16,11 +16,15 @@ class ProcessLiveEventUseCase(
     private val commandSocketClient: CommandSocketClient,
     private val eventLogRepository: EventLogRepository,
 ) {
+    private val lastTriggeredAt = mutableMapOf<String, Long>()
+    private val likeProgress = mutableMapOf<String, Int>()
+
     suspend operator fun invoke(event: LiveEvent) {
         val outputMode = outputModeProvider.getCurrentMode()
-        val matchedRule = ruleRepository
-            .getEnabledRules()
-            .firstOrNull { rule -> RuleMatcher.matches(rule, event) }
+        val matchedRule = findMatchedRule(
+            rules = ruleRepository.getEnabledRules(),
+            event = event,
+        )
 
         if (matchedRule == null) {
             eventLogRepository.record(
@@ -33,6 +37,23 @@ class ProcessLiveEventUseCase(
                     outputMode = outputMode,
                     outputSuccess = false,
                     outputMessage = "no_matching_rule",
+                    createdAt = event.timestamp,
+                ),
+            )
+            return
+        }
+
+        if (isOnCooldown(matchedRule, event.timestamp)) {
+            eventLogRepository.record(
+                ProcessedEventRecord(
+                    eventId = event.id,
+                    eventType = event.type.name,
+                    summary = buildEventSummary(event),
+                    rawPayloadJson = event.payload.toString(),
+                    matchedRuleId = matchedRule.id,
+                    outputMode = outputMode,
+                    outputSuccess = false,
+                    outputMessage = "cooldown_skipped",
                     createdAt = event.timestamp,
                 ),
             )
@@ -59,34 +80,73 @@ class ProcessLiveEventUseCase(
 
         runCatching { executeAction(action) }
             .onSuccess {
+                rememberTrigger(matchedRule, event.timestamp)
                 eventLogRepository.record(
-                ProcessedEventRecord(
-                    eventId = event.id,
-                    eventType = event.type.name,
-                    summary = buildEventSummary(event),
-                    rawPayloadJson = event.payload.toString(),
-                    matchedRuleId = matchedRule.id,
-                    outputMode = outputMode,
-                    outputSuccess = true,
-                    outputMessage = "ok",
-                    createdAt = event.timestamp,
-                ),
-            )
+                    ProcessedEventRecord(
+                        eventId = event.id,
+                        eventType = event.type.name,
+                        summary = buildEventSummary(event),
+                        rawPayloadJson = event.payload.toString(),
+                        matchedRuleId = matchedRule.id,
+                        outputMode = outputMode,
+                        outputSuccess = true,
+                        outputMessage = "ok",
+                        createdAt = event.timestamp,
+                    ),
+                )
+            }
+            .onFailure { error ->
+                eventLogRepository.record(
+                    ProcessedEventRecord(
+                        eventId = event.id,
+                        eventType = event.type.name,
+                        summary = buildEventSummary(event),
+                        rawPayloadJson = event.payload.toString(),
+                        matchedRuleId = matchedRule.id,
+                        outputMode = outputMode,
+                        outputSuccess = false,
+                        outputMessage = error.message ?: "unknown_error",
+                        createdAt = event.timestamp,
+                    ),
+                )
+            }
+    }
+
+    private fun findMatchedRule(
+        rules: List<TriggerRule>,
+        event: LiveEvent,
+    ): TriggerRule? {
+        val likePayload = event.payload as? com.yokonex.bililive.domain.model.EventPayload.LikePayload
+        return rules.firstOrNull { rule ->
+            if (likePayload != null && rule.eventType == LiveEventType.LIKE) {
+                shouldTriggerLikeRule(
+                    rule = rule,
+                    roomId = event.roomId,
+                    payload = likePayload,
+                )
+            } else {
+                RuleMatcher.matches(rule, event)
+            }
         }
-        .onFailure { error ->
-                eventLogRepository.record(
-                ProcessedEventRecord(
-                    eventId = event.id,
-                    eventType = event.type.name,
-                    summary = buildEventSummary(event),
-                    rawPayloadJson = event.payload.toString(),
-                    matchedRuleId = matchedRule.id,
-                    outputMode = outputMode,
-                    outputSuccess = false,
-                    outputMessage = error.message ?: "unknown_error",
-                    createdAt = event.timestamp,
-                ),
-            )
+    }
+
+    private fun isOnCooldown(
+        rule: TriggerRule,
+        eventTimestamp: Long,
+    ): Boolean {
+        if (rule.cooldownSeconds <= 0) {
+            return false
+        }
+        val lastTriggered = lastTriggeredAt[rule.id] ?: return false
+        return eventTimestamp < lastTriggered + rule.cooldownSeconds
+    }
+
+    private fun rememberTrigger(
+        rule: TriggerRule,
+        eventTimestamp: Long,
+    ) {
+        if (rule.cooldownSeconds > 0) {
+            lastTriggeredAt[rule.id] = eventTimestamp
         }
     }
 
@@ -115,6 +175,43 @@ class ProcessLiveEventUseCase(
                 commandSocketClient.sendCommand(action.commandSlot)
             }
         }
+    }
+
+    private fun shouldTriggerLikeRule(
+        rule: TriggerRule,
+        roomId: String,
+        payload: com.yokonex.bililive.domain.model.EventPayload.LikePayload,
+    ): Boolean {
+        val multiple = rule.conditions.likeMultiple ?: return true
+        if (multiple <= 0) {
+            return false
+        }
+        val progressKey = "${rule.id}:$roomId:$multiple"
+        var lastObservedLikeCount = likeProgress[progressKey] ?: 0
+        val effectiveLikeCount = resolveEffectiveLikeCount(
+            reportedLikeCount = payload.likeCount,
+            likeDelta = payload.likeDelta,
+            lastObservedLikeCount = lastObservedLikeCount,
+        )
+        if (payload.likeCount > 0 && effectiveLikeCount < lastObservedLikeCount) {
+            lastObservedLikeCount = 0
+        }
+        likeProgress[progressKey] = effectiveLikeCount
+        return (effectiveLikeCount / multiple) > (lastObservedLikeCount / multiple)
+    }
+
+    private fun resolveEffectiveLikeCount(
+        reportedLikeCount: Int,
+        likeDelta: Int,
+        lastObservedLikeCount: Int,
+    ): Int {
+        if (reportedLikeCount > 0) {
+            return reportedLikeCount
+        }
+        if (likeDelta > 0) {
+            return lastObservedLikeCount + likeDelta
+        }
+        return lastObservedLikeCount
     }
 }
 

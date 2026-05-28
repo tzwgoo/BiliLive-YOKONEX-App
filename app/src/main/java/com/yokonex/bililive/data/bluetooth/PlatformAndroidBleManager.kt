@@ -14,7 +14,13 @@ import android.content.Context
 import android.os.Build
 import android.os.ParcelUuid
 import com.yokonex.bililive.data.bluetooth.model.BluetoothDevice
+import com.yokonex.bililive.data.bluetooth.model.BluetoothTelemetry
 import java.util.UUID
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -27,6 +33,8 @@ class PlatformAndroidBleManager(
     private val bluetoothManager = context.getSystemService(BluetoothManager::class.java)
     private val bluetoothAdapter: BluetoothAdapter =
         bluetoothManager?.adapter ?: error("当前设备不支持蓝牙")
+    private val telemetryState = MutableStateFlow(BluetoothTelemetry())
+    override val telemetry: StateFlow<BluetoothTelemetry> = telemetryState.asStateFlow()
 
     @Volatile
     private var currentGatt: BluetoothGatt? = null
@@ -88,15 +96,28 @@ class PlatformAndroidBleManager(
     @SuppressLint("MissingPermission")
     override suspend fun connect(deviceId: String) {
         disconnect()
+        telemetryState.value = BluetoothTelemetry()
         val device = bluetoothAdapter.getRemoteDevice(deviceId)
         connectGatt(device)
     }
 
     @SuppressLint("MissingPermission")
     override suspend fun disconnect() {
-        currentGatt?.disconnect()
-        currentGatt?.close()
+        val gatt = currentGatt
+        if (gatt != null) {
+            gatt.disconnect()
+            withTimeoutOrNull(2_000L) {
+                while (currentGatt === gatt) {
+                    delay(50L)
+                }
+            }
+            if (currentGatt === gatt) {
+                gatt.close()
+                currentGatt = null
+            }
+        }
         currentGatt = null
+        telemetryState.value = BluetoothTelemetry()
     }
 
     @SuppressLint("MissingPermission")
@@ -170,6 +191,13 @@ class PlatformAndroidBleManager(
                         continuation.resume(Unit)
                     }
                 }
+
+                override fun onCharacteristicChanged(
+                    gatt: BluetoothGatt,
+                    characteristic: BluetoothGattCharacteristic,
+                ) {
+                    updateTelemetry(characteristic.value)
+                }
             }
 
             val gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -205,6 +233,21 @@ class PlatformAndroidBleManager(
 
     private fun BluetoothGatt.findNotifyCharacteristic(): BluetoothGattCharacteristic? =
         getService(EMS_SERVICE_UUID)?.getCharacteristic(EMS_NOTIFY_CHARACTERISTIC_UUID)
+
+    private fun updateTelemetry(packet: ByteArray?) {
+        val batteryLevel = parseBatteryLevel(packet ?: return) ?: return
+        telemetryState.value = BluetoothTelemetry(batteryLevel = batteryLevel)
+    }
+
+    private fun parseBatteryLevel(packet: ByteArray): Int? {
+        if (packet.size < 4) {
+            return null
+        }
+        if (packet[0].toInt() != 0x35 || packet[1].toInt() != 0x71 || packet[2].toInt() != 0x04) {
+            return null
+        }
+        return packet[3].toInt().and(0xFF).coerceIn(0, 100)
+    }
 
     private companion object {
         val EMS_SERVICE_UUID: UUID = UUID.fromString("0000ff30-0000-1000-8000-00805f9b34fb")

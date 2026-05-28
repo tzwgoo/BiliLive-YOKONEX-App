@@ -2,11 +2,13 @@ package com.yokonex.bililive.data.bluetooth
 
 import com.yokonex.bililive.data.bluetooth.model.BluetoothConnectionState
 import com.yokonex.bililive.data.bluetooth.model.BluetoothDevice
+import com.yokonex.bililive.data.bluetooth.model.BluetoothRuntimeStatus
 import kotlinx.coroutines.flow.StateFlow
 
 interface BluetoothRepository {
     val connectionState: StateFlow<BluetoothConnectionState>
     val devices: StateFlow<List<BluetoothDevice>>
+    val runtimeStatus: StateFlow<BluetoothRuntimeStatus>
 
     suspend fun scan(): List<BluetoothDevice>
 

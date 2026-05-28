@@ -2,6 +2,7 @@ package com.yokonex.bililive.data.bluetooth
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.yokonex.bililive.data.mapper.WaveformMapper
+import com.yokonex.bililive.data.bluetooth.model.BluetoothTelemetry
 import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.data.storage.dao.WaveformDao
 import com.yokonex.bililive.data.storage.entity.WaveformEntity
@@ -10,15 +11,21 @@ import com.yokonex.bililive.data.bluetooth.model.BluetoothDevice
 import com.yokonex.bililive.domain.model.WaveformDefinition
 import com.yokonex.bililive.domain.model.WaveformStep
 import java.nio.file.Files
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class DefaultBluetoothRepositoryTest {
 
     @Test
@@ -56,6 +63,7 @@ class DefaultBluetoothRepositoryTest {
             byteArrayOf(0x35, 0x71, 0x04, 0xAA.toByte()),
             bleManager.writes.first(),
         )
+        assertEquals("YYC-DJ-V2-001", repository.runtimeStatus.value.deviceName)
     }
 
     @Test
@@ -135,22 +143,74 @@ class DefaultBluetoothRepositoryTest {
             ),
             bleManager.writes.last(),
         )
+        assertEquals(0, repository.runtimeStatus.value.channelAStrength)
+        assertEquals(0, repository.runtimeStatus.value.channelBStrength)
+    }
+
+    @Test
+    fun connect_sameDeviceRepeatedly_onlyConnectsOnce() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("bt-repo", ".preferences_pb").toFile()
+            },
+        )
+        val bleManager = FakeAndroidBleManager(
+            devices = listOf(
+                BluetoothDevice(
+                    id = "AA:BB:CC:03",
+                    name = "YYC-DJ-V2-002",
+                    protocol = "ems_v2",
+                ),
+            ),
+            connectGate = CompletableDeferred(),
+        )
+        val repository = DefaultBluetoothRepository(
+            bleManager = bleManager,
+            waveformDao = FakeWaveformDao(),
+            settingsStore = SettingsStore(dataStore),
+            waveformRuntime = EmsWaveformRuntime(bleManager, EmsProtocolEncoder()),
+            protocolEncoder = EmsProtocolEncoder(),
+        )
+
+        repository.scan()
+        val firstConnect = backgroundScope.launch { repository.connect("AA:BB:CC:03") }
+        advanceUntilIdle()
+        val secondConnect = backgroundScope.launch { repository.connect("AA:BB:CC:03") }
+        advanceUntilIdle()
+        bleManager.completeConnect()
+        firstConnect.join()
+        secondConnect.join()
+
+        assertEquals(1, bleManager.connectCalls)
+        assertEquals(BluetoothConnectionState.CONNECTED, repository.connectionState.value)
     }
 }
 
 private class FakeAndroidBleManager(
     private val devices: List<BluetoothDevice>,
+    private val connectGate: CompletableDeferred<Unit>? = null,
 ) : AndroidBleManager {
     val writes = mutableListOf<ByteArray>()
+    var connectCalls: Int = 0
+    private val telemetryState = MutableStateFlow(BluetoothTelemetry())
+    override val telemetry = telemetryState.asStateFlow()
 
     override suspend fun scan(): List<BluetoothDevice> = devices
 
-    override suspend fun connect(deviceId: String) = Unit
+    override suspend fun connect(deviceId: String) {
+        connectCalls += 1
+        connectGate?.await()
+    }
 
     override suspend fun disconnect() = Unit
 
     override suspend fun write(packet: ByteArray) {
         writes += packet
+    }
+
+    fun completeConnect() {
+        connectGate?.complete(Unit)
     }
 }
 

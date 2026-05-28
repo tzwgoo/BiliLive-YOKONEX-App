@@ -33,8 +33,19 @@ class JsonWaveformDao(
         persist()
     }
 
+    override suspend fun upsert(waveform: WaveformEntity) {
+        val filtered = state.value.filterNot { entity -> entity.id == waveform.id }
+        state.value = (filtered + waveform).sortedBy(WaveformEntity::name)
+        persist()
+    }
+
     override suspend fun findById(id: String): WaveformEntity? =
         state.value.firstOrNull { it.id == id }
+
+    override suspend fun deleteById(id: String) {
+        state.value = state.value.filterNot { entity -> entity.id == id }
+        persist()
+    }
 
     private fun loadInitial(defaultWaveforms: List<WaveformEntity>): List<WaveformEntity> {
         if (!file.exists()) {

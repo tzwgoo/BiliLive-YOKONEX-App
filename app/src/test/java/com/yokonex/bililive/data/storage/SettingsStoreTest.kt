@@ -53,7 +53,19 @@ class SettingsStoreTest {
             }
         }
 
+        override suspend fun upsert(waveform: WaveformEntity) {
+            state.update { current ->
+                current.filterNot { entity -> entity.id == waveform.id } + waveform
+            }
+        }
+
         override suspend fun findById(id: String): WaveformEntity? =
             state.value.firstOrNull { it.id == id }
+
+        override suspend fun deleteById(id: String) {
+            state.update { current ->
+                current.filterNot { entity -> entity.id == id }
+            }
+        }
     }
 }

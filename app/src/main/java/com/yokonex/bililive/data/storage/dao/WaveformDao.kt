@@ -18,7 +18,13 @@ interface WaveformDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(waveforms: List<WaveformEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(waveform: WaveformEntity)
+
     @Query("SELECT * FROM waveforms WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): WaveformEntity?
+
+    @Query("DELETE FROM waveforms WHERE id = :id")
+    suspend fun deleteById(id: String)
 }
 

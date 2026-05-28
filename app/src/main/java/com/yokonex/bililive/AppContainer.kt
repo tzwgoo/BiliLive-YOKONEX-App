@@ -21,6 +21,8 @@ import com.yokonex.bililive.data.storage.JsonRuleStore
 import com.yokonex.bililive.data.storage.JsonWaveformDao
 import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.data.storage.dao.WaveformDao
+import com.yokonex.bililive.data.waveform.DefaultWaveformLibraryRepository
+import com.yokonex.bililive.data.waveform.WaveformLibraryRepository
 import com.yokonex.bililive.data.websocket.CommandSocketClient
 import com.yokonex.bililive.data.websocket.OkHttpCommandSocketClient
 import com.yokonex.bililive.domain.model.ActionBindings
@@ -64,6 +66,10 @@ class AppContainer(
     )
     val eventLogStore = JsonEventLogStore(
         file = File(context.filesDir, "storage/event_logs.json"),
+    )
+    val waveformLibraryRepository: WaveformLibraryRepository = DefaultWaveformLibraryRepository(
+        waveformDao = waveformDao,
+        ruleStore = ruleStore,
     )
     private val liveRoomClient: LiveRoomClient = DefaultBilibiliLiveRoomClient()
     val roomProfileRepository: RoomProfileRepository = BilibiliRoomProfileRepository(liveRoomClient)

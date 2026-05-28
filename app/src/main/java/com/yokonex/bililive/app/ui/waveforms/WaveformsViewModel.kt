@@ -97,6 +97,73 @@ class WaveformsViewModel(
         }
     }
 
+    fun updateDraftStrength(
+        stepIndex: Int,
+        channel: WaveformChannel,
+        strength: Int,
+    ) {
+        updateDraftStep(stepIndex) { step ->
+            when (channel) {
+                WaveformChannel.A -> step.copy(channelA = strength.coerceIn(0, 180))
+                WaveformChannel.B -> step.copy(channelB = strength.coerceIn(0, 180))
+            }
+        }
+    }
+
+    fun updateStepDuration(
+        stepIndex: Int,
+        durationMs: Int,
+    ) {
+        updateDraftStep(stepIndex) { step ->
+            step.copy(durationMs = durationMs.coerceAtLeast(1))
+        }
+    }
+
+    fun insertStep(insertIndex: Int) {
+        _uiState.update { current ->
+            val draft = current.draftWaveform ?: return@update current
+            val safeIndex = insertIndex.coerceIn(0, draft.steps.size)
+            val templateStep = draft.steps.getOrNull((safeIndex - 1).coerceAtLeast(0)) ?: defaultStep()
+            val nextSteps = draft.steps.toMutableList().apply {
+                add(safeIndex, templateStep.copy())
+            }
+            current.copy(
+                draftWaveform = draft.copy(steps = nextSteps),
+                isDirty = true,
+            )
+        }
+    }
+
+    fun duplicateStep(stepIndex: Int) {
+        _uiState.update { current ->
+            val draft = current.draftWaveform ?: return@update current
+            val sourceStep = draft.steps.getOrNull(stepIndex) ?: return@update current
+            val nextSteps = draft.steps.toMutableList().apply {
+                add(stepIndex + 1, sourceStep.copy())
+            }
+            current.copy(
+                draftWaveform = draft.copy(steps = nextSteps),
+                isDirty = true,
+            )
+        }
+    }
+
+    fun deleteStep(stepIndex: Int) {
+        _uiState.update { current ->
+            val draft = current.draftWaveform ?: return@update current
+            if (draft.steps.size <= 1 || stepIndex !in draft.steps.indices) {
+                return@update current.copy(editorMessage = "波形至少需要保留一个分段")
+            }
+            val nextSteps = draft.steps.toMutableList().apply {
+                removeAt(stepIndex)
+            }
+            current.copy(
+                draftWaveform = draft.copy(steps = nextSteps),
+                isDirty = true,
+            )
+        }
+    }
+
     fun saveDraft() {
         val repository = waveformLibraryRepository ?: return
         val draft = _uiState.value.draftWaveform ?: return
@@ -189,6 +256,30 @@ class WaveformsViewModel(
             )
         }
     }
+
+    private fun updateDraftStep(
+        stepIndex: Int,
+        transform: (com.yokonex.bililive.domain.model.WaveformStep) -> com.yokonex.bililive.domain.model.WaveformStep,
+    ) {
+        _uiState.update { current ->
+            val draft = current.draftWaveform ?: return@update current
+            if (stepIndex !in draft.steps.indices) {
+                return@update current
+            }
+            val nextSteps = draft.steps.toMutableList()
+            nextSteps[stepIndex] = transform(nextSteps[stepIndex])
+            current.copy(
+                draftWaveform = draft.copy(steps = nextSteps),
+                isDirty = true,
+            )
+        }
+    }
+
+    private fun defaultStep() = com.yokonex.bililive.domain.model.WaveformStep(
+        durationMs = 200,
+        channelA = 0,
+        channelB = 0,
+    )
 }
 
 data class WaveformsUiState(
@@ -200,3 +291,8 @@ data class WaveformsUiState(
     val pendingSelectionWaveformId: String? = null,
     val pendingDeleteWaveformId: String? = null,
 )
+
+enum class WaveformChannel {
+    A,
+    B,
+}

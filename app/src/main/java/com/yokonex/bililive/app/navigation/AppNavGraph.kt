@@ -140,6 +140,16 @@ fun AppNavGraph() {
                         onDuplicateSelectedWaveform = waveformsViewModel::duplicateSelectedWaveform,
                         onSaveDraft = waveformsViewModel::saveDraft,
                         onWaveformNameChange = waveformsViewModel::updateWaveformName,
+                        onUpdateStepDuration = waveformsViewModel::updateStepDuration,
+                        onDuplicateStep = waveformsViewModel::duplicateStep,
+                        onDeleteStep = waveformsViewModel::deleteStep,
+                        onStrengthDrag = waveformsViewModel::updateDraftStrength,
+                        onInsertStep = waveformsViewModel::insertStep,
+                        onRequestDeleteWaveform = waveformsViewModel::requestDeleteSelectedWaveform,
+                        onDismissDeleteRequest = waveformsViewModel::dismissDeleteRequest,
+                        onConfirmDeleteWaveform = waveformsViewModel::confirmDeleteSelectedWaveform,
+                        onConfirmPendingSelection = waveformsViewModel::confirmPendingSelection,
+                        onDismissPendingSelection = waveformsViewModel::dismissPendingSelection,
                         contentPadding = innerPadding,
                     )
                 }

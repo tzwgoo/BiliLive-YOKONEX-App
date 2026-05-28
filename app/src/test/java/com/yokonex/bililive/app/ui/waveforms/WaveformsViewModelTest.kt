@@ -73,6 +73,38 @@ class WaveformsViewModelTest {
         assertEquals(false, state.draftWaveform?.builtin)
     }
 
+    @Test
+    fun updateDraftStrength_marksDirtyAndChangesChannel() = runTest {
+        val customWaveform = sampleWaveform("custom-wave-01", "可编辑波形", builtin = false)
+        val viewModel = createViewModel(
+            waveforms = listOf(customWaveform),
+        )
+        advanceUntilIdle()
+
+        viewModel.updateDraftStrength(
+            stepIndex = 0,
+            channel = WaveformChannel.A,
+            strength = 88,
+        )
+
+        assertEquals(88, viewModel.uiState.value.draftWaveform?.steps?.first()?.channelA)
+        assertEquals(true, viewModel.uiState.value.isDirty)
+    }
+
+    @Test
+    fun insertStep_addsOneStepAfterGivenBoundary() = runTest {
+        val customWaveform = sampleWaveform("custom-wave-01", "可编辑波形", builtin = false)
+        val viewModel = createViewModel(
+            waveforms = listOf(customWaveform),
+        )
+        advanceUntilIdle()
+
+        viewModel.insertStep(insertIndex = 1)
+
+        assertEquals(2, viewModel.uiState.value.draftWaveform?.steps?.size)
+        assertEquals(true, viewModel.uiState.value.isDirty)
+    }
+
     private fun createViewModel(
         waveforms: List<WaveformDefinition>,
     ): WaveformsViewModel {

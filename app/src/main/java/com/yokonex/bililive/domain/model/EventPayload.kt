@@ -11,6 +11,7 @@ sealed interface EventPayload {
     data class LikePayload(
         val likeCount: Int,
         val likeText: String,
+        val likeDelta: Int = 0,
     ) : EventPayload
 
     data class DanmakuPayload(
@@ -21,4 +22,3 @@ sealed interface EventPayload {
         val message: String,
     ) : EventPayload
 }
-

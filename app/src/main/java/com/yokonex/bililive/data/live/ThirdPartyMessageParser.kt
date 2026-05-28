@@ -16,10 +16,21 @@ class ThirdPartyMessageParser(
     private val roomId: String,
     private val timestampProvider: () -> Long = System::currentTimeMillis,
 ) {
+    private val normalizer = BilibiliDanmakuEventNormalizer(roomId, timestampProvider)
+
     fun parse(rawMessage: String): LiveEvent {
+        return normalizer.normalize(rawMessage)
+    }
+}
+
+class BilibiliDanmakuEventNormalizer(
+    private val roomId: String,
+    private val timestampProvider: () -> Long = System::currentTimeMillis,
+) {
+    fun normalize(rawMessage: String): LiveEvent {
         val root = Json.parseToJsonElement(rawMessage).jsonObject
         val message = ThirdPartyMessage(
-            cmd = root.string("cmd"),
+            cmd = normalizeCmd(root.string("cmd")),
             data = root["data"]?.jsonObject ?: JsonObject(emptyMap()),
             info = root["info"]?.jsonArray,
         )
@@ -41,6 +52,13 @@ class ThirdPartyMessageParser(
             else -> mapSystem(message)
         }
     }
+
+    private fun normalizeCmd(cmd: String): String =
+        when {
+            cmd.contains("RECALL_DANMU_MSG") -> "RECALL_DANMU_MSG"
+            cmd.contains("DANMU_MSG") -> "DANMU_MSG"
+            else -> cmd
+        }
 
     private fun mapGift(message: ThirdPartyMessage): LiveEvent {
         val data = message.data
@@ -66,6 +84,7 @@ class ThirdPartyMessageParser(
 
     private fun mapLike(message: ThirdPartyMessage): LiveEvent {
         val data = message.data
+        val likeCount = data.intAny("like_count", "click_count", "count")
         return LiveEvent(
             id = "${message.cmd}-${timestampProvider()}",
             type = LiveEventType.LIKE,
@@ -74,8 +93,9 @@ class ThirdPartyMessageParser(
             userName = data.string("uname"),
             roomId = roomId,
             payload = EventPayload.LikePayload(
-                likeCount = data.intAny("like_count", "click_count", "count"),
+                likeCount = likeCount,
                 likeText = data.stringOrDefault("like_text", "点赞"),
+                likeDelta = if (message.cmd == "LIKE_INFO_V3_CLICK" && likeCount <= 0) 1 else 0,
             ),
         )
     }

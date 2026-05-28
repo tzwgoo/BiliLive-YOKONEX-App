@@ -1,6 +1,22 @@
 package com.yokonex.bililive.app.ui.live
 
 import com.yokonex.bililive.app.ui.MainDispatcherRule
+import com.yokonex.bililive.data.storage.SettingsStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.yokonex.bililive.data.live.ThirdPartyLiveGateway
+import com.yokonex.bililive.domain.model.GiftTriggerMode
+import com.yokonex.bililive.domain.model.LiveEvent
+import com.yokonex.bililive.domain.model.OutputMode
+import com.yokonex.bililive.service.MonitoringConfig
+import com.yokonex.bililive.service.MonitoringConfigProvider
+import com.yokonex.bililive.service.ServiceCoordinator
+import java.nio.file.Files
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -31,10 +47,128 @@ class LiveConfigViewModelTest {
     }
 
     @Test
-    fun toggleMonitoring_whenIdle_updatesStatusToRunning() = runTest {
+    fun updateGiftTriggerMode_updatesPreviewState() {
         val viewModel = LiveConfigViewModel()
 
+        viewModel.updateGiftTriggerMode(GiftTriggerMode.BY_QUANTITY)
+
+        assertEquals(GiftTriggerMode.BY_QUANTITY, viewModel.uiState.value.giftTriggerMode)
+    }
+
+    @Test
+    fun toggleAutoReconnect_withSettingsStore_persistsFlag() = runTest {
+        val settingsStore = SettingsStore(
+            PreferenceDataStoreFactory.create(
+                scope = backgroundScope,
+                produceFile = {
+                    Files.createTempFile("live-config-viewmodel", ".preferences_pb").toFile()
+                },
+            ),
+        )
+        val viewModel = LiveConfigViewModel(
+            settingsStore = settingsStore,
+            batteryOptimizationStatusProvider = FakeBatteryOptimizationStatusProvider(
+                BatteryOptimizationStatus(
+                    supported = false,
+                    ignoringBatteryOptimizations = true,
+                ),
+            ),
+        )
+
+        viewModel.toggleAutoReconnect(false)
+
+        assertTrue(!settingsStore.autoReconnectEnabled.first())
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun init_withSettingsStore_readsGiftTriggerMode() = runTest {
+        val settingsStore = SettingsStore(
+            PreferenceDataStoreFactory.create(
+                scope = backgroundScope,
+                produceFile = {
+                    Files.createTempFile("live-config-viewmodel", ".preferences_pb").toFile()
+                },
+            ),
+        )
+        settingsStore.updateGiftTriggerMode(GiftTriggerMode.BY_QUANTITY)
+
+        val viewModel = LiveConfigViewModel(
+            settingsStore = settingsStore,
+            batteryOptimizationStatusProvider = FakeBatteryOptimizationStatusProvider(
+                BatteryOptimizationStatus(
+                    supported = false,
+                    ignoringBatteryOptimizations = true,
+                ),
+            ),
+        )
+        runCurrent()
+
+        assertEquals(GiftTriggerMode.BY_QUANTITY, viewModel.uiState.value.giftTriggerMode)
+    }
+
+    @Test
+    fun updateGiftTriggerMode_withSettingsStore_persistsMode() = runTest {
+        val settingsStore = SettingsStore(
+            PreferenceDataStoreFactory.create(
+                scope = backgroundScope,
+                produceFile = {
+                    Files.createTempFile("live-config-viewmodel", ".preferences_pb").toFile()
+                },
+            ),
+        )
+        val viewModel = LiveConfigViewModel(
+            settingsStore = settingsStore,
+            batteryOptimizationStatusProvider = FakeBatteryOptimizationStatusProvider(
+                BatteryOptimizationStatus(
+                    supported = false,
+                    ignoringBatteryOptimizations = true,
+                ),
+            ),
+        )
+
+        viewModel.updateGiftTriggerMode(GiftTriggerMode.BY_QUANTITY)
+
+        assertEquals(GiftTriggerMode.BY_QUANTITY, settingsStore.giftTriggerMode.first())
+    }
+
+    @Test
+    fun init_readsBatteryOptimizationState() {
+        val viewModel = LiveConfigViewModel(
+            batteryOptimizationStatusProvider = FakeBatteryOptimizationStatusProvider(
+                BatteryOptimizationStatus(
+                    supported = true,
+                    ignoringBatteryOptimizations = false,
+                ),
+            ),
+        )
+
+        assertEquals("建议关闭电池优化", viewModel.uiState.value.batteryOptimizationStatus)
+        assertTrue(viewModel.uiState.value.shouldShowBatteryOptimizationAction)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun toggleMonitoring_whenIdle_updatesStatusToRunning() = runTest {
+        val serviceCoordinator = ServiceCoordinator(
+            configProvider = object : MonitoringConfigProvider {
+                override suspend fun current(): MonitoringConfig =
+                    MonitoringConfig(
+                        roomId = "22608112",
+                        outputMode = OutputMode.BLUETOOTH,
+                    )
+            },
+            liveGateway = object : ThirdPartyLiveGateway {
+                override fun events(roomId: String) = flow<LiveEvent> {
+                    awaitCancellation()
+                }
+            },
+            dispatcher = Dispatchers.Main,
+        )
+        val viewModel = LiveConfigViewModel(serviceCoordinator = serviceCoordinator)
+
         viewModel.toggleMonitoring()
+        runCurrent()
 
         assertEquals("监听中", viewModel.uiState.value.monitoringStatus)
     }
@@ -55,10 +189,38 @@ class LiveConfigViewModelTest {
     }
 
     @Test
+    fun refreshBatteryOptimizationStatus_updatesUiState() {
+        val provider = FakeBatteryOptimizationStatusProvider(
+            BatteryOptimizationStatus(
+                supported = true,
+                ignoringBatteryOptimizations = false,
+            ),
+        )
+        val viewModel = LiveConfigViewModel(
+            batteryOptimizationStatusProvider = provider,
+        )
+
+        provider.status = BatteryOptimizationStatus(
+            supported = true,
+            ignoringBatteryOptimizations = true,
+        )
+        viewModel.refreshBatteryOptimizationStatus()
+
+        assertEquals("已关闭电池优化", viewModel.uiState.value.batteryOptimizationStatus)
+        assertTrue(!viewModel.uiState.value.shouldShowBatteryOptimizationAction)
+    }
+
+    @Test
     fun parseDanmakuKeywords_supportsCommaVariantsAndLineBreaks() {
         assertEquals(
             listOf("开火", "冲冲冲", "加速"),
             parseDanmakuKeywords("开火，冲冲冲\n加速"),
         )
     }
+}
+
+private class FakeBatteryOptimizationStatusProvider(
+    var status: BatteryOptimizationStatus,
+) : BatteryOptimizationStatusProvider {
+    override fun currentStatus(): BatteryOptimizationStatus = status
 }

@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.yokonex.bililive.domain.model.GiftTriggerMode
 import com.yokonex.bililive.domain.model.OutputMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -57,6 +58,20 @@ class SettingsStore(
             preferences[RECONNECT_INTERVAL_SECONDS]?.toIntOrNull()?.coerceAtLeast(1) ?: 3
         }
 
+    val autoReconnectEnabled: Flow<Boolean> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { preferences ->
+            preferences[AUTO_RECONNECT_ENABLED]?.toBooleanStrictOrNull() ?: true
+        }
+
+    val giftTriggerMode: Flow<GiftTriggerMode> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { preferences ->
+            preferences[GIFT_TRIGGER_MODE]
+                ?.let { value -> enumValues<GiftTriggerMode>().firstOrNull { it.name == value } }
+                ?: GiftTriggerMode.SINGLE
+        }
+
     suspend fun updateRoomId(value: String) {
         dataStore.edit { preferences ->
             preferences[ROOM_ID] = value
@@ -103,6 +118,18 @@ class SettingsStore(
         }
     }
 
+    suspend fun updateAutoReconnectEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[AUTO_RECONNECT_ENABLED] = enabled.toString()
+        }
+    }
+
+    suspend fun updateGiftTriggerMode(mode: GiftTriggerMode) {
+        dataStore.edit { preferences ->
+            preferences[GIFT_TRIGGER_MODE] = mode.name
+        }
+    }
+
     suspend fun ensureDefaults() {
         dataStore.edit { preferences ->
             if (!preferences.contains(ROOM_ID)) {
@@ -123,6 +150,12 @@ class SettingsStore(
             if (!preferences.contains(RECONNECT_INTERVAL_SECONDS)) {
                 preferences[RECONNECT_INTERVAL_SECONDS] = "3"
             }
+            if (!preferences.contains(AUTO_RECONNECT_ENABLED)) {
+                preferences[AUTO_RECONNECT_ENABLED] = true.toString()
+            }
+            if (!preferences.contains(GIFT_TRIGGER_MODE)) {
+                preferences[GIFT_TRIGGER_MODE] = GiftTriggerMode.SINGLE.name
+            }
         }
     }
 
@@ -135,5 +168,7 @@ class SettingsStore(
         val WEBSOCKET_UID = stringPreferencesKey("websocket_uid")
         val WEBSOCKET_TOKEN = stringPreferencesKey("websocket_token")
         val RECONNECT_INTERVAL_SECONDS = stringPreferencesKey("reconnect_interval_seconds")
+        val AUTO_RECONNECT_ENABLED = stringPreferencesKey("auto_reconnect_enabled")
+        val GIFT_TRIGGER_MODE = stringPreferencesKey("gift_trigger_mode")
     }
 }

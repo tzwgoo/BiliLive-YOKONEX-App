@@ -79,6 +79,92 @@ class DashboardViewModelTest {
 
     @Test
     fun sampleRecentEvents_showsMoreRealtimeItems() {
-        assertEquals(4, DashboardUiState().recentEvents.size)
+        assertEquals(3, DashboardUiState().recentEventSections.size)
     }
+
+    @Test
+    fun buildDashboardRecentEvents_keepsLatestGiftAndLikeWhenDanmakuFloodsFeed() {
+        val logs = buildList {
+            repeat(10) { index ->
+                add(
+                    EventLogEntity(
+                        id = "danmaku-$index",
+                        eventType = "DANMAKU",
+                        summary = "弹幕 $index",
+                        rawPayloadJson = "{}",
+                        matchedRuleId = null,
+                        outputMode = "BLUETOOTH",
+                        outputSuccess = false,
+                        outputMessage = "no_matching_rule",
+                        createdAt = 1_714_113_037_000L - index,
+                    ),
+                )
+            }
+            add(
+                EventLogEntity(
+                    id = "like-1",
+                    eventType = "LIKE",
+                    summary = "点赞事件",
+                    rawPayloadJson = "{}",
+                    matchedRuleId = null,
+                    outputMode = "BLUETOOTH",
+                    outputSuccess = false,
+                    outputMessage = "no_matching_rule",
+                    createdAt = 1_714_113_036_000L,
+                ),
+            )
+            add(
+                EventLogEntity(
+                    id = "gift-1",
+                    eventType = "GIFT",
+                    summary = "礼物事件",
+                    rawPayloadJson = "{}",
+                    matchedRuleId = null,
+                    outputMode = "BLUETOOTH",
+                    outputSuccess = true,
+                    outputMessage = "ok",
+                    createdAt = 1_714_113_035_000L,
+                ),
+            )
+        }
+
+        val recentEvents = buildDashboardRecentEvents(logs)
+
+        assertEquals(10, recentEvents.size)
+        assertEquals(true, recentEvents.any { it.id == "like-1" })
+        assertEquals(true, recentEvents.any { it.id == "gift-1" })
+    }
+
+    @Test
+    fun buildDashboardEventSections_groupsGiftLikeAndDanmakuIndependently() {
+        val logs = listOf(
+            dashboardEntity(id = "gift-1", eventType = "GIFT", createdAt = 30L),
+            dashboardEntity(id = "like-1", eventType = "LIKE", createdAt = 20L),
+            dashboardEntity(id = "danmaku-1", eventType = "DANMAKU", createdAt = 10L),
+            dashboardEntity(id = "gift-2", eventType = "GIFT", createdAt = 5L),
+        )
+
+        val sections = buildDashboardEventSections(logs)
+
+        assertEquals(listOf("礼物", "点赞", "弹幕"), sections.map { it.title })
+        assertEquals(listOf("gift-1", "gift-2"), sections[0].events.map { it.id })
+        assertEquals(listOf("like-1"), sections[1].events.map { it.id })
+        assertEquals(listOf("danmaku-1"), sections[2].events.map { it.id })
+    }
+
+    private fun dashboardEntity(
+        id: String,
+        eventType: String,
+        createdAt: Long,
+    ) = EventLogEntity(
+        id = id,
+        eventType = eventType,
+        summary = id,
+        rawPayloadJson = "{}",
+        matchedRuleId = null,
+        outputMode = "BLUETOOTH",
+        outputSuccess = eventType != "LIKE",
+        outputMessage = if (eventType == "LIKE") "no_matching_rule" else "ok",
+        createdAt = createdAt,
+    )
 }

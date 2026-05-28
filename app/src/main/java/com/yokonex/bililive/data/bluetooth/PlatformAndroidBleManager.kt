@@ -28,6 +28,8 @@ import kotlin.coroutines.resumeWithException
 class PlatformAndroidBleManager(
     context: Context,
     private val deviceClassifier: BluetoothDeviceClassifier = BluetoothDeviceClassifier(),
+    private val timestampProvider: () -> Long = System::currentTimeMillis,
+    private val reconnectCooldownMillis: Long = DEFAULT_RECONNECT_COOLDOWN_MILLIS,
 ) : AndroidBleManager {
     private val appContext = context.applicationContext
     private val bluetoothManager = context.getSystemService(BluetoothManager::class.java)
@@ -38,6 +40,9 @@ class PlatformAndroidBleManager(
 
     @Volatile
     private var currentGatt: BluetoothGatt? = null
+
+    @Volatile
+    private var lastDisconnectAtMillis: Long = 0L
 
     @SuppressLint("MissingPermission")
     override suspend fun scan(): List<BluetoothDevice> =
@@ -96,6 +101,14 @@ class PlatformAndroidBleManager(
     @SuppressLint("MissingPermission")
     override suspend fun connect(deviceId: String) {
         disconnect()
+        val reconnectDelayMillis = calculateReconnectDelayMillis(
+            nowMillis = timestampProvider(),
+            lastDisconnectAtMillis = lastDisconnectAtMillis,
+            cooldownMillis = reconnectCooldownMillis,
+        )
+        if (reconnectDelayMillis > 0L) {
+            delay(reconnectDelayMillis)
+        }
         telemetryState.value = BluetoothTelemetry()
         val device = bluetoothAdapter.getRemoteDevice(deviceId)
         connectGatt(device)
@@ -114,6 +127,7 @@ class PlatformAndroidBleManager(
             if (currentGatt === gatt) {
                 gatt.close()
                 currentGatt = null
+                markDisconnectedNow()
             }
         }
         currentGatt = null
@@ -155,20 +169,34 @@ class PlatformAndroidBleManager(
                     status: Int,
                     newState: Int,
                 ) {
-                    if (status != BluetoothGatt.GATT_SUCCESS) {
-                        gatt.close()
-                        if (continuation.isActive) {
-                            continuation.resumeWithException(
-                                IllegalStateException("蓝牙连接失败 status=$status"),
-                            )
+                    when (resolveConnectionStateAction(status, newState)) {
+                        GattConnectionAction.DISCOVER_SERVICES -> {
+                            gatt.discoverServices()
                         }
-                        return
-                    }
-                    if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
-                        gatt.discoverServices()
-                    } else if (newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED) {
-                        currentGatt = null
-                        gatt.close()
+
+                        GattConnectionAction.FAIL_CONNECTION -> {
+                            currentGatt = null
+                            gatt.close()
+                            markDisconnectedNow()
+                            if (continuation.isActive) {
+                                continuation.resumeWithException(
+                                    IllegalStateException(
+                                        buildConnectionFailureMessage(
+                                            status = status,
+                                            newState = newState,
+                                        ),
+                                    ),
+                                )
+                            }
+                        }
+
+                        GattConnectionAction.CLOSE_AS_DISCONNECTED -> {
+                            currentGatt = null
+                            gatt.close()
+                            markDisconnectedNow()
+                        }
+
+                        GattConnectionAction.IGNORE -> Unit
                     }
                 }
 
@@ -177,7 +205,9 @@ class PlatformAndroidBleManager(
                     status: Int,
                 ) {
                     if (status != BluetoothGatt.GATT_SUCCESS) {
+                        currentGatt = null
                         gatt.close()
+                        markDisconnectedNow()
                         if (continuation.isActive) {
                             continuation.resumeWithException(
                                 IllegalStateException("蓝牙服务发现失败 status=$status"),
@@ -249,10 +279,54 @@ class PlatformAndroidBleManager(
         return packet[3].toInt().and(0xFF).coerceIn(0, 100)
     }
 
+    private fun markDisconnectedNow() {
+        lastDisconnectAtMillis = timestampProvider()
+    }
+
     private companion object {
+        const val DEFAULT_RECONNECT_COOLDOWN_MILLIS = 1_000L
         val EMS_SERVICE_UUID: UUID = UUID.fromString("0000ff30-0000-1000-8000-00805f9b34fb")
         val EMS_WRITE_CHARACTERISTIC_UUID: UUID = UUID.fromString("0000ff31-0000-1000-8000-00805f9b34fb")
         val EMS_NOTIFY_CHARACTERISTIC_UUID: UUID = UUID.fromString("0000ff32-0000-1000-8000-00805f9b34fb")
         val CLIENT_CHARACTERISTIC_CONFIG_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
+}
+
+internal enum class GattConnectionAction {
+    DISCOVER_SERVICES,
+    FAIL_CONNECTION,
+    CLOSE_AS_DISCONNECTED,
+    IGNORE,
+}
+
+internal fun resolveConnectionStateAction(
+    status: Int,
+    newState: Int,
+): GattConnectionAction =
+    when {
+        newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED -> GattConnectionAction.DISCOVER_SERVICES
+        status != BluetoothGatt.GATT_SUCCESS -> GattConnectionAction.FAIL_CONNECTION
+        newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED -> GattConnectionAction.CLOSE_AS_DISCONNECTED
+        else -> GattConnectionAction.IGNORE
+    }
+
+internal fun buildConnectionFailureMessage(
+    status: Int,
+    newState: Int = android.bluetooth.BluetoothProfile.STATE_DISCONNECTED,
+): String =
+    when (status) {
+        201 -> "蓝牙连接失败，设备可能尚未完全释放或系统蓝牙栈正忙（status=$status, newState=$newState），请稍后重试"
+        else -> "蓝牙连接失败 status=$status newState=$newState"
+    }
+
+internal fun calculateReconnectDelayMillis(
+    nowMillis: Long,
+    lastDisconnectAtMillis: Long,
+    cooldownMillis: Long,
+): Long {
+    if (lastDisconnectAtMillis <= 0L || cooldownMillis <= 0L) {
+        return 0L
+    }
+    val nextAllowedAt = lastDisconnectAtMillis + cooldownMillis
+    return (nextAllowedAt - nowMillis).coerceAtLeast(0L)
 }

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.yokonex.bililive.AppServices
 import com.yokonex.bililive.data.storage.JsonRuleStore
 import com.yokonex.bililive.data.storage.SettingsStore
+import com.yokonex.bililive.domain.model.GiftTriggerMode
 import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.RuleConditions
 import com.yokonex.bililive.domain.model.TriggerRule
@@ -25,6 +26,15 @@ class LiveConfigViewModel(
     private val settingsStore: SettingsStore? = AppServices.container?.settingsStore,
     private val ruleStore: JsonRuleStore? = AppServices.container?.ruleStore,
     private val serviceCoordinator: ServiceCoordinator = AppServices.container?.serviceCoordinator ?: ServiceCoordinator(),
+    private val batteryOptimizationStatusProvider: BatteryOptimizationStatusProvider =
+        AppServices.applicationContext?.let(::AndroidBatteryOptimizationStatusProvider)
+            ?: object : BatteryOptimizationStatusProvider {
+                override fun currentStatus(): BatteryOptimizationStatus =
+                    BatteryOptimizationStatus(
+                        supported = false,
+                        ignoringBatteryOptimizations = true,
+                    )
+            },
 ) : ViewModel() {
     private val startMonitoringUseCase = StartMonitoringUseCase(serviceCoordinator)
     private val stopMonitoringUseCase = StopMonitoringUseCase(serviceCoordinator)
@@ -40,6 +50,7 @@ class LiveConfigViewModel(
                 }
             }
         }
+        refreshBatteryOptimizationStatus()
         settingsStore?.let { store ->
             viewModelScope.launch {
                 store.roomId.collect { roomId ->
@@ -52,6 +63,20 @@ class LiveConfigViewModel(
                 store.reconnectIntervalSeconds.collect { seconds ->
                     _uiState.update { currentState ->
                         currentState.copy(reconnectIntervalSeconds = seconds.toString())
+                    }
+                }
+            }
+            viewModelScope.launch {
+                store.autoReconnectEnabled.collect { enabled ->
+                    _uiState.update { currentState ->
+                        currentState.copy(autoReconnect = enabled)
+                    }
+                }
+            }
+            viewModelScope.launch {
+                store.giftTriggerMode.collect { mode ->
+                    _uiState.update { currentState ->
+                        currentState.copy(giftTriggerMode = mode)
                     }
                 }
             }
@@ -87,9 +112,25 @@ class LiveConfigViewModel(
         }
     }
 
-    fun toggleAutoReconnect(enabled: Boolean) {
+    fun refreshBatteryOptimizationStatus() {
+        val status = batteryOptimizationStatusProvider.currentStatus()
         _uiState.update { currentState ->
-            currentState.copy(autoReconnect = enabled)
+            currentState.copy(
+                batteryOptimizationSupported = status.supported,
+                batteryOptimizationIgnored = status.ignoringBatteryOptimizations,
+            )
+        }
+    }
+
+    fun toggleAutoReconnect(enabled: Boolean) {
+        if (settingsStore == null) {
+            _uiState.update { currentState ->
+                currentState.copy(autoReconnect = enabled)
+            }
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateAutoReconnectEnabled(enabled)
         }
     }
 
@@ -101,8 +142,23 @@ class LiveConfigViewModel(
             }
             return
         }
+        _uiState.update { currentState ->
+            currentState.copy(reconnectIntervalSeconds = sanitized)
+        }
         viewModelScope.launch {
             settingsStore.updateReconnectIntervalSeconds(sanitized.toIntOrNull() ?: 3)
+        }
+    }
+
+    fun updateGiftTriggerMode(mode: GiftTriggerMode) {
+        if (settingsStore == null) {
+            _uiState.update { currentState ->
+                currentState.copy(giftTriggerMode = mode)
+            }
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateGiftTriggerMode(mode)
         }
     }
 
@@ -234,12 +290,15 @@ data class LiveConfigUiState(
     val roomId: String = "22445566",
     val autoReconnect: Boolean = true,
     val reconnectIntervalSeconds: String = "8",
+    val giftTriggerMode: GiftTriggerMode = GiftTriggerMode.SINGLE,
     val likeMultiple: String = DEFAULT_LIKE_MULTIPLE.toString(),
     val danmakuEnabled: Boolean = false,
     val danmakuKeywords: String = "",
     val danmakuCooldownSeconds: String = "0",
     val providerName: String = "第三方直播消息流",
     val serviceStatus: ServiceStatus = ServiceStatus.Idle,
+    val batteryOptimizationSupported: Boolean = false,
+    val batteryOptimizationIgnored: Boolean = true,
 ) {
     val isMonitoring: Boolean
         get() = serviceStatus !is ServiceStatus.Idle && serviceStatus !is ServiceStatus.Stopping
@@ -256,6 +315,29 @@ data class LiveConfigUiState(
 
     val monitoringButtonLabel: String
         get() = if (isMonitoring) "停止监听" else "启动监听"
+
+    val batteryOptimizationStatus: String
+        get() = when {
+            !batteryOptimizationSupported -> "系统未限制后台运行"
+            batteryOptimizationIgnored -> "已关闭电池优化"
+            else -> "建议关闭电池优化"
+        }
+
+    val batteryOptimizationHint: String
+        get() = when {
+            !batteryOptimizationSupported -> "当前系统版本通常不会因为 Doze 机制主动限制本应用的监听。"
+            batteryOptimizationIgnored -> "系统已允许本应用在息屏后继续保持后台运行，监听会更稳定。"
+            else -> "部分机型会在息屏后压后台网络或挂起协程，建议把本应用加入电池优化白名单。"
+        }
+
+    val shouldShowBatteryOptimizationAction: Boolean
+        get() = batteryOptimizationSupported && !batteryOptimizationIgnored
+
+    val giftTriggerModeLabel: String
+        get() = when (giftTriggerMode) {
+            GiftTriggerMode.SINGLE -> "单次触发"
+            GiftTriggerMode.BY_QUANTITY -> "按数量触发"
+        }
 }
 
 private const val LIKE_RULE_ID = "like-default"

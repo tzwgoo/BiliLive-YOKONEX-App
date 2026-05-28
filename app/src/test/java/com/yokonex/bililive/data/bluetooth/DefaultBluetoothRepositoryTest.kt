@@ -67,6 +67,41 @@ class DefaultBluetoothRepositoryTest {
     }
 
     @Test
+    fun connect_emsV1Device_alsoQueriesBatteryAfterConnecting() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("bt-repo", ".preferences_pb").toFile()
+            },
+        )
+        val bleManager = FakeAndroidBleManager(
+            devices = listOf(
+                BluetoothDevice(
+                    id = "AA:BB:CC:11",
+                    name = "YYC-DJ-001",
+                    protocol = "ems_v1",
+                ),
+            ),
+        )
+        val repository = DefaultBluetoothRepository(
+            bleManager = bleManager,
+            waveformDao = FakeWaveformDao(),
+            settingsStore = SettingsStore(dataStore),
+            waveformRuntime = EmsWaveformRuntime(bleManager, EmsProtocolEncoder()),
+            protocolEncoder = EmsProtocolEncoder(),
+        )
+
+        repository.scan()
+        repository.connect("AA:BB:CC:11")
+
+        assertArrayEquals(
+            byteArrayOf(0x35, 0x71, 0x04, 0xAA.toByte()),
+            bleManager.writes.first(),
+        )
+        assertEquals("YYC-DJ-001", repository.runtimeStatus.value.deviceName)
+    }
+
+    @Test
     fun playWaveform_loadsStoredWaveformAndWritesPackets() = runTest {
         val dataStore = PreferenceDataStoreFactory.create(
             scope = backgroundScope,
@@ -112,7 +147,11 @@ class DefaultBluetoothRepositoryTest {
         repository.connect("AA:BB:CC:02")
         repository.playWaveform("custom-wave")
 
-        assertTrue(bleManager.writes.size >= 2)
+        assertTrue(bleManager.writes.size >= 3)
+        assertArrayEquals(
+            byteArrayOf(0x35, 0x71, 0x04, 0xAA.toByte()),
+            bleManager.writes.first(),
+        )
         assertArrayEquals(
             byteArrayOf(
                 0x35,
@@ -126,7 +165,7 @@ class DefaultBluetoothRepositoryTest {
                 0x05,
                 0x9A.toByte(),
             ),
-            bleManager.writes.first(),
+            bleManager.writes[1],
         )
         assertArrayEquals(
             byteArrayOf(

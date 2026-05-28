@@ -51,7 +51,7 @@ fun RulesScreen(
                     style = MaterialTheme.typography.headlineMedium,
                 )
                 Text(
-                    text = "蓝牙波形可切换，IM 槽位固定沿用原项目映射；礼物规则只开放价格区间调整。",
+                    text = "蓝牙波形可切换，IM 槽位固定沿用原项目映射；礼物规则只开放单个礼物价值区间调整。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -127,7 +127,7 @@ private fun RuleEditorCard(
                             minPriceText = value.filter(Char::isDigit)
                             onGiftPriceRangeChange(rule.id, minPriceText, maxPriceText)
                         },
-                        label = { Text("最低礼物价值") },
+                        label = { Text("最低单个礼物价值") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                     )
@@ -137,7 +137,7 @@ private fun RuleEditorCard(
                             maxPriceText = value.filter(Char::isDigit)
                             onGiftPriceRangeChange(rule.id, minPriceText, maxPriceText)
                         },
-                        label = { Text("最高礼物价值") },
+                        label = { Text("最高单个礼物价值") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                     )

@@ -1,14 +1,17 @@
 package com.yokonex.bililive.data.live
 
+import java.io.ByteArrayInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.Inflater
+import org.brotli.dec.BrotliInputStream
 
 object BilibiliDanmakuProtocol {
     const val HEADER_LENGTH = 16
     const val PROTOCOL_VERSION_RAW_JSON = 0
     const val PROTOCOL_VERSION_PLAIN = 1
     const val PROTOCOL_VERSION_ZLIB = 2
+    const val PROTOCOL_VERSION_BROTLI = 3
     const val SEQUENCE_ID = 1
 
     const val OP_HEARTBEAT = 2
@@ -57,6 +60,11 @@ object BilibiliDanmakuProtocol {
                 continue
             }
 
+            if (version == PROTOCOL_VERSION_BROTLI) {
+                packets += decodePackets(decompressBrotli(body))
+                continue
+            }
+
             packets += DecodedPacket(
                 packetLength = packetLength,
                 headerLength = headerLength,
@@ -92,6 +100,13 @@ object BilibiliDanmakuProtocol {
         }
         return output.toByteArray()
     }
+
+    private fun decompressBrotli(data: ByteArray): ByteArray =
+        ByteArrayInputStream(data).use { input ->
+            BrotliInputStream(input).use { brotli ->
+                brotli.readBytes()
+            }
+        }
 }
 
 data class DecodedPacket(

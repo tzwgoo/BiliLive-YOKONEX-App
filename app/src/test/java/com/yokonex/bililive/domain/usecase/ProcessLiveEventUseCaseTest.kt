@@ -6,6 +6,7 @@ import com.yokonex.bililive.data.bluetooth.model.BluetoothDevice
 import com.yokonex.bililive.data.bluetooth.model.BluetoothRuntimeStatus
 import com.yokonex.bililive.domain.model.ActionBindings
 import com.yokonex.bililive.domain.model.EventPayload
+import com.yokonex.bililive.domain.model.GiftTriggerMode
 import com.yokonex.bililive.domain.model.LiveEvent
 import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.OutputMode
@@ -42,6 +43,7 @@ class ProcessLiveEventUseCaseTest {
                 ),
             ),
             outputModeProvider = StaticOutputModeProvider(OutputMode.BLUETOOTH),
+            giftTriggerModeProvider = StaticGiftTriggerModeProvider(GiftTriggerMode.SINGLE),
             bluetoothRepository = bluetoothRepository,
             commandSocketClient = websocketClient,
             eventLogRepository = logRepository,
@@ -64,7 +66,7 @@ class ProcessLiveEventUseCaseTest {
             ),
         )
 
-        assertEquals(listOf("soft_pulse"), bluetoothRepository.playedWaveforms)
+        assertEquals(listOf("soft_pulse#1"), bluetoothRepository.playedWaveforms)
         assertEquals(true, logRepository.records.last().outputSuccess)
     }
 
@@ -89,6 +91,7 @@ class ProcessLiveEventUseCaseTest {
                 ),
             ),
             outputModeProvider = StaticOutputModeProvider(OutputMode.BLUETOOTH),
+            giftTriggerModeProvider = StaticGiftTriggerModeProvider(GiftTriggerMode.SINGLE),
             bluetoothRepository = bluetoothRepository,
             commandSocketClient = FakeCommandSocketClient(),
             eventLogRepository = FakeEventLogRepository(),
@@ -140,6 +143,7 @@ class ProcessLiveEventUseCaseTest {
                 ),
             ),
             outputModeProvider = StaticOutputModeProvider(OutputMode.BLUETOOTH),
+            giftTriggerModeProvider = StaticGiftTriggerModeProvider(GiftTriggerMode.SINGLE),
             bluetoothRepository = bluetoothRepository,
             commandSocketClient = FakeCommandSocketClient(),
             eventLogRepository = logRepository,
@@ -158,7 +162,7 @@ class ProcessLiveEventUseCaseTest {
         useCase(event)
         useCase(event.copy(id = "event-danmaku-2", timestamp = 12L))
 
-        assertEquals(listOf("ems-preset-03"), bluetoothRepository.playedWaveforms)
+        assertEquals(listOf("ems-preset-03#1"), bluetoothRepository.playedWaveforms)
         assertEquals("cooldown_skipped", logRepository.records.last().outputMessage)
     }
 
@@ -185,6 +189,7 @@ class ProcessLiveEventUseCaseTest {
                 ),
             ),
             outputModeProvider = StaticOutputModeProvider(OutputMode.BLUETOOTH),
+            giftTriggerModeProvider = StaticGiftTriggerModeProvider(GiftTriggerMode.SINGLE),
             bluetoothRepository = bluetoothRepository,
             commandSocketClient = FakeCommandSocketClient(),
             eventLogRepository = logRepository,
@@ -219,7 +224,7 @@ class ProcessLiveEventUseCaseTest {
             ),
         )
 
-        assertEquals(listOf("ems-preset-01"), bluetoothRepository.playedWaveforms)
+        assertEquals(listOf("ems-preset-01#1"), bluetoothRepository.playedWaveforms)
         assertEquals("ok", logRepository.records.last().outputMessage)
     }
 
@@ -246,6 +251,7 @@ class ProcessLiveEventUseCaseTest {
                 ),
             ),
             outputModeProvider = StaticOutputModeProvider(OutputMode.BLUETOOTH),
+            giftTriggerModeProvider = StaticGiftTriggerModeProvider(GiftTriggerMode.SINGLE),
             bluetoothRepository = bluetoothRepository,
             commandSocketClient = FakeCommandSocketClient(),
             eventLogRepository = logRepository,
@@ -269,8 +275,109 @@ class ProcessLiveEventUseCaseTest {
             )
         }
 
-        assertEquals(listOf("ems-preset-02"), bluetoothRepository.playedWaveforms)
+        assertEquals(listOf("ems-preset-02#1"), bluetoothRepository.playedWaveforms)
         assertEquals("ok", logRepository.records.last().outputMessage)
+    }
+
+    @Test
+    fun processLiveEvent_repeatsGiftActionByQuantity_whenGlobalModeIsByQuantity() = runTest {
+        val bluetoothRepository = FakeBluetoothRepository()
+        val useCase = ProcessLiveEventUseCase(
+            ruleRepository = StaticRuleRepository(
+                listOf(
+                    TriggerRule(
+                        id = "gift-rule",
+                        name = "礼物触发蓝牙",
+                        eventType = LiveEventType.GIFT,
+                        conditions = com.yokonex.bililive.domain.model.RuleConditions(
+                            minPrice = 100,
+                            maxPrice = 100,
+                        ),
+                        actionBindings = ActionBindings(
+                            bluetoothAction = com.yokonex.bililive.domain.model.OutputAction.BluetoothWaveformAction(
+                                waveformId = "gift-wave",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            outputModeProvider = StaticOutputModeProvider(OutputMode.BLUETOOTH),
+            giftTriggerModeProvider = StaticGiftTriggerModeProvider(GiftTriggerMode.BY_QUANTITY),
+            bluetoothRepository = bluetoothRepository,
+            commandSocketClient = FakeCommandSocketClient(),
+            eventLogRepository = FakeEventLogRepository(),
+        )
+
+        useCase(
+            LiveEvent(
+                id = "gift-quantity",
+                type = LiveEventType.GIFT,
+                timestamp = 3L,
+                userId = "1006",
+                userName = "tester",
+                roomId = "2001",
+                payload = EventPayload.GiftPayload(
+                    giftName = "辣条",
+                    giftNum = 3,
+                    price = 100,
+                    totalPrice = 300,
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf("gift-wave#3"),
+            bluetoothRepository.playedWaveforms,
+        )
+    }
+
+    @Test
+    fun processLiveEvent_matchesGiftTierByUnitPrice_notTotalPrice() = runTest {
+        val bluetoothRepository = FakeBluetoothRepository()
+        val useCase = ProcessLiveEventUseCase(
+            ruleRepository = StaticRuleRepository(
+                listOf(
+                    TriggerRule(
+                        id = "gift-rule",
+                        name = "礼物触发蓝牙",
+                        eventType = LiveEventType.GIFT,
+                        conditions = com.yokonex.bililive.domain.model.RuleConditions(
+                            minPrice = 100,
+                            maxPrice = 199,
+                        ),
+                        actionBindings = ActionBindings(
+                            bluetoothAction = com.yokonex.bililive.domain.model.OutputAction.BluetoothWaveformAction(
+                                waveformId = "gift-wave",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            outputModeProvider = StaticOutputModeProvider(OutputMode.BLUETOOTH),
+            giftTriggerModeProvider = StaticGiftTriggerModeProvider(GiftTriggerMode.SINGLE),
+            bluetoothRepository = bluetoothRepository,
+            commandSocketClient = FakeCommandSocketClient(),
+            eventLogRepository = FakeEventLogRepository(),
+        )
+
+        useCase(
+            LiveEvent(
+                id = "gift-price",
+                type = LiveEventType.GIFT,
+                timestamp = 4L,
+                userId = "1007",
+                userName = "tester",
+                roomId = "2001",
+                payload = EventPayload.GiftPayload(
+                    giftName = "小心心",
+                    giftNum = 10,
+                    price = 100,
+                    totalPrice = 1_000,
+                ),
+            ),
+        )
+
+        assertEquals(listOf("gift-wave#1"), bluetoothRepository.playedWaveforms)
     }
 
     private class StaticRuleRepository(
@@ -283,6 +390,12 @@ class ProcessLiveEventUseCaseTest {
         private val mode: OutputMode,
     ) : OutputModeProvider {
         override suspend fun getCurrentMode(): OutputMode = mode
+    }
+
+    private class StaticGiftTriggerModeProvider(
+        private val mode: GiftTriggerMode,
+    ) : GiftTriggerModeProvider {
+        override suspend fun getCurrentMode(): GiftTriggerMode = mode
     }
 
     private class FakeBluetoothRepository(
@@ -303,9 +416,12 @@ class ProcessLiveEventUseCaseTest {
 
         override suspend fun disconnect() = Unit
 
-        override suspend fun playWaveform(waveformId: String) {
+        override suspend fun playWaveform(
+            waveformId: String,
+            repeatCount: Int,
+        ) {
             failure?.let { throw it }
-            playedWaveforms += waveformId
+            playedWaveforms += "$waveformId#$repeatCount"
         }
     }
 
@@ -319,8 +435,11 @@ class ProcessLiveEventUseCaseTest {
 
         override suspend fun disconnect() = Unit
 
-        override suspend fun sendCommand(commandSlot: String) {
-            commands += commandSlot
+        override suspend fun sendCommand(
+            commandSlot: String,
+            repeatCount: Int,
+        ) {
+            commands += "$commandSlot#$repeatCount"
         }
     }
 

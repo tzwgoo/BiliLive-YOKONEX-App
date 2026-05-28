@@ -3,6 +3,7 @@ package com.yokonex.bililive.data.storage
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.yokonex.bililive.data.storage.dao.WaveformDao
 import com.yokonex.bililive.data.storage.entity.WaveformEntity
+import com.yokonex.bililive.domain.model.GiftTriggerMode
 import com.yokonex.bililive.domain.model.OutputMode
 import java.nio.file.Files
 import kotlinx.coroutines.flow.Flow
@@ -38,6 +39,38 @@ class SettingsStoreTest {
         assertEquals("", settingsStore.roomId.first())
         assertEquals(OutputMode.BLUETOOTH, settingsStore.outputMode.first())
         assertEquals("ws://103.236.55.92:43001/", settingsStore.websocketEndpoint.first())
+        assertTrue(settingsStore.autoReconnectEnabled.first())
+        assertEquals(GiftTriggerMode.SINGLE, settingsStore.giftTriggerMode.first())
+    }
+
+    @Test
+    fun updateAutoReconnectEnabled_persistsFlag() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("settings-store", ".preferences_pb").toFile()
+            },
+        )
+        val settingsStore = SettingsStore(dataStore)
+
+        settingsStore.updateAutoReconnectEnabled(false)
+
+        assertTrue(!settingsStore.autoReconnectEnabled.first())
+    }
+
+    @Test
+    fun updateGiftTriggerMode_persistsMode() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("settings-store", ".preferences_pb").toFile()
+            },
+        )
+        val settingsStore = SettingsStore(dataStore)
+
+        settingsStore.updateGiftTriggerMode(GiftTriggerMode.BY_QUANTITY)
+
+        assertEquals(GiftTriggerMode.BY_QUANTITY, settingsStore.giftTriggerMode.first())
     }
 
     private class FakeWaveformDao : WaveformDao {

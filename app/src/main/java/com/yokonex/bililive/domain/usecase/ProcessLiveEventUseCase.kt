@@ -5,6 +5,7 @@ import com.yokonex.bililive.data.websocket.CommandSocketClient
 import com.yokonex.bililive.domain.model.LiveEvent
 import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.OutputAction
+import com.yokonex.bililive.domain.model.GiftTriggerMode
 import com.yokonex.bililive.domain.model.OutputMode
 import com.yokonex.bililive.domain.model.TriggerRule
 import com.yokonex.bililive.domain.rule.RuleMatcher
@@ -12,6 +13,7 @@ import com.yokonex.bililive.domain.rule.RuleMatcher
 class ProcessLiveEventUseCase(
     private val ruleRepository: RuleRepository,
     private val outputModeProvider: OutputModeProvider,
+    private val giftTriggerModeProvider: GiftTriggerModeProvider,
     private val bluetoothRepository: BluetoothRepository,
     private val commandSocketClient: CommandSocketClient,
     private val eventLogRepository: EventLogRepository,
@@ -78,7 +80,8 @@ class ProcessLiveEventUseCase(
             return
         }
 
-        runCatching { executeAction(action) }
+        val repeatCount = resolveRepeatCount(event)
+        runCatching { executeAction(action, repeatCount) }
             .onSuccess {
                 rememberTrigger(matchedRule, event.timestamp)
                 eventLogRepository.record(
@@ -165,15 +168,33 @@ class ProcessLiveEventUseCase(
                 payload.message
         }
 
-    private suspend fun executeAction(action: OutputAction) {
+    private suspend fun executeAction(
+        action: OutputAction,
+        repeatCount: Int,
+    ) {
         when (action) {
             is OutputAction.BluetoothWaveformAction -> {
-                bluetoothRepository.playWaveform(action.waveformId)
+                bluetoothRepository.playWaveform(
+                    waveformId = action.waveformId,
+                    repeatCount = repeatCount,
+                )
             }
 
             is OutputAction.WebSocketCommandAction -> {
-                commandSocketClient.sendCommand(action.commandSlot)
+                commandSocketClient.sendCommand(
+                    commandSlot = action.commandSlot,
+                    repeatCount = repeatCount,
+                )
             }
+        }
+    }
+
+    private suspend fun resolveRepeatCount(event: LiveEvent): Int {
+        val giftPayload = event.payload as? com.yokonex.bililive.domain.model.EventPayload.GiftPayload
+            ?: return 1
+        return when (giftTriggerModeProvider.getCurrentMode()) {
+            GiftTriggerMode.SINGLE -> 1
+            GiftTriggerMode.BY_QUANTITY -> giftPayload.giftNum.coerceAtLeast(1)
         }
     }
 
@@ -221,6 +242,10 @@ interface RuleRepository {
 
 interface OutputModeProvider {
     suspend fun getCurrentMode(): OutputMode
+}
+
+interface GiftTriggerModeProvider {
+    suspend fun getCurrentMode(): GiftTriggerMode
 }
 
 interface EventLogRepository {

@@ -22,46 +22,93 @@ class LogsViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(LogsUiState())
     val uiState: StateFlow<LogsUiState> = _uiState.asStateFlow()
+    private var allLogs: List<EventLogEntity> = sampleLogEntities()
 
     init {
         eventLogStore?.let { store ->
             viewModelScope.launch {
                 store.logs.collect { logs ->
+                    allLogs = logs
                     _uiState.update { currentState ->
-                        currentState.copy(logs = logs.map(::toUiEventLog))
+                        currentState.copy(
+                            logs = filterLogs(logs, currentState.selectedFilter).map(::toUiEventLog),
+                        )
                     }
                 }
             }
         }
     }
+
+    fun selectFilter(filter: LogEventFilter) {
+        _uiState.update { currentState ->
+            currentState.copy(
+                selectedFilter = filter,
+                logs = filterLogs(allLogs, filter).map(::toUiEventLog),
+            )
+        }
+    }
+}
+
+enum class LogEventFilter(val label: String) {
+    ALL("全部"),
+    GIFT("礼物"),
+    LIKE("点赞"),
+    DANMAKU("弹幕"),
+    SYSTEM("系统"),
 }
 
 data class LogsUiState(
-    val logs: List<UiEventLog> = listOf(
-        UiEventLog(
-            id = "log_201",
-            title = "蓝牙执行成功",
-            detail = "dual_tap 已写入 YYC-DJ-V2-Alpha。",
-            timestampLabel = "刚刚",
-            statusLabel = "成功",
-            success = true,
-        ),
-        UiEventLog(
-            id = "log_202",
-            title = "Socket 输出跳过",
-            detail = "当前未建立 WebSocket 连接，指令未下发。",
-            timestampLabel = "2 分钟前",
-            statusLabel = "跳过",
-            success = false,
-        ),
-        UiEventLog(
-            id = "log_203",
-            title = "点赞规则进入队列",
-            detail = "事件已记录，等待下一次批量发送窗口。",
-            timestampLabel = "5 分钟前",
-            statusLabel = "排队中",
-            success = true,
-        ),
+    val selectedFilter: LogEventFilter = LogEventFilter.ALL,
+    val logs: List<UiEventLog> = sampleLogEntities().map(::toUiEventLog),
+) {
+    val availableFilters: List<LogEventFilter> = LogEventFilter.entries
+}
+
+internal fun filterLogs(
+    logs: List<EventLogEntity>,
+    filter: LogEventFilter,
+): List<EventLogEntity> =
+    when (filter) {
+        LogEventFilter.ALL -> logs
+        LogEventFilter.GIFT -> logs.filter { it.eventType == "GIFT" }
+        LogEventFilter.LIKE -> logs.filter { it.eventType == "LIKE" }
+        LogEventFilter.DANMAKU -> logs.filter { it.eventType == "DANMAKU" }
+        LogEventFilter.SYSTEM -> logs.filter { it.eventType == "SYSTEM" }
+    }
+
+private fun sampleLogEntities(): List<EventLogEntity> = listOf(
+    EventLogEntity(
+        id = "log_201",
+        eventType = "GIFT",
+        summary = "dual_tap 已写入 YYC-DJ-V2-Alpha。",
+        rawPayloadJson = "{}",
+        matchedRuleId = "gift-tier-01",
+        outputMode = "BLUETOOTH",
+        outputSuccess = true,
+        outputMessage = "ok",
+        createdAt = 1_714_113_037_000L,
+    ),
+    EventLogEntity(
+        id = "log_202",
+        eventType = "SYSTEM",
+        summary = "当前未建立 WebSocket 连接，指令未下发。",
+        rawPayloadJson = "{}",
+        matchedRuleId = null,
+        outputMode = "WEBSOCKET",
+        outputSuccess = false,
+        outputMessage = "no_action_binding",
+        createdAt = 1_714_113_027_000L,
+    ),
+    EventLogEntity(
+        id = "log_203",
+        eventType = "LIKE",
+        summary = "事件已记录，等待下一次批量发送窗口。",
+        rawPayloadJson = "{}",
+        matchedRuleId = "like-default",
+        outputMode = "BLUETOOTH",
+        outputSuccess = true,
+        outputMessage = "ok",
+        createdAt = 1_714_113_017_000L,
     ),
 )
 

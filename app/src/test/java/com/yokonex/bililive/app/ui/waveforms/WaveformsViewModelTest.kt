@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -36,6 +37,41 @@ class WaveformsViewModelTest {
         val state = viewModel.uiState.value
         assertEquals("ems-preset-01", state.selectedWaveformId)
         assertEquals("ems-preset-01", state.draftWaveform?.id)
+        assertFalse(state.isEditorVisible)
+    }
+
+    @Test
+    fun selectWaveform_opensEditorPage() = runTest {
+        val firstWaveform = sampleWaveform("ems-preset-01", "预设一", builtin = true)
+        val secondWaveform = sampleWaveform("custom-wave-01", "自定义一", builtin = false)
+        val viewModel = createViewModel(
+            waveforms = listOf(firstWaveform, secondWaveform),
+        )
+        advanceUntilIdle()
+
+        viewModel.selectWaveform("custom-wave-01")
+
+        val state = viewModel.uiState.value
+        assertEquals("custom-wave-01", state.selectedWaveformId)
+        assertEquals("custom-wave-01", state.draftWaveform?.id)
+        assertTrue(state.isEditorVisible)
+    }
+
+    @Test
+    fun createWaveform_opensEditorPageForNewWaveform() = runTest {
+        val firstWaveform = sampleWaveform("ems-preset-01", "预设一", builtin = true)
+        val viewModel = createViewModel(
+            waveforms = listOf(firstWaveform),
+        )
+        advanceUntilIdle()
+
+        viewModel.createWaveform()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.isEditorVisible)
+        assertTrue(state.selectedWaveformId.startsWith("custom-wave-"))
+        assertEquals(state.selectedWaveformId, state.draftWaveform?.id)
     }
 
     @Test
@@ -103,6 +139,41 @@ class WaveformsViewModelTest {
 
         assertEquals(2, viewModel.uiState.value.draftWaveform?.steps?.size)
         assertEquals(true, viewModel.uiState.value.isDirty)
+    }
+
+    @Test
+    fun appendAndRemoveStep_updateDraftStepCount() = runTest {
+        val customWaveform = sampleWaveform("custom-wave-01", "可编辑波形", builtin = false)
+        val viewModel = createViewModel(
+            waveforms = listOf(customWaveform),
+        )
+        advanceUntilIdle()
+
+        viewModel.appendStep()
+        assertEquals(2, viewModel.uiState.value.draftWaveform?.steps?.size)
+
+        viewModel.removeLastStep()
+        assertEquals(1, viewModel.uiState.value.draftWaveform?.steps?.size)
+        assertTrue(viewModel.uiState.value.isDirty)
+    }
+
+    @Test
+    fun reopenSameWaveform_keepsDirtyDraft() = runTest {
+        val customWaveform = sampleWaveform("custom-wave-01", "可编辑波形", builtin = false)
+        val viewModel = createViewModel(
+            waveforms = listOf(customWaveform),
+        )
+        advanceUntilIdle()
+
+        viewModel.selectWaveform("custom-wave-01")
+        viewModel.updateWaveformName("未保存的新名字")
+        viewModel.closeEditor()
+        viewModel.selectWaveform("custom-wave-01")
+
+        val state = viewModel.uiState.value
+        assertEquals("未保存的新名字", state.draftWaveform?.name)
+        assertTrue(state.isDirty)
+        assertTrue(state.isEditorVisible)
     }
 
     private fun createViewModel(

@@ -58,7 +58,10 @@ class ServiceCoordinator(
                             eventProcessor(event)
                         }
                         break
-                    } catch (_: Exception) {
+                    } catch (error: Exception) {
+                        if (!config.autoReconnectEnabled) {
+                            throw error
+                        }
                         _status.value = ServiceStatus.Reconnecting
                         delay(config.reconnectIntervalMillis)
                         _status.value = ServiceStatus.Running
@@ -119,6 +122,7 @@ data class MonitoringConfig(
     val websocketEndpoint: String = "",
     val websocketUid: String = "",
     val websocketToken: String = "",
+    val autoReconnectEnabled: Boolean = true,
     val reconnectIntervalMillis: Long = 3_000,
 )
 
@@ -165,5 +169,8 @@ private class PreviewCommandSocketClient : CommandSocketClient {
         state.value = CommandSocketState.DISCONNECTED
     }
 
-    override suspend fun sendCommand(commandSlot: String) = Unit
+    override suspend fun sendCommand(
+        commandSlot: String,
+        repeatCount: Int,
+    ) = Unit
 }

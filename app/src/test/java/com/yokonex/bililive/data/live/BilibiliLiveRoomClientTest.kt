@@ -83,4 +83,8 @@ private class FakeBilibiliLiveApi(
         calls += "masterInfo:$uid"
         return masterInfo
     }
+
+    override suspend fun sendWebHeartbeat(realRoomId: String) {
+        calls += "webHeartbeat:$realRoomId"
+    }
 }

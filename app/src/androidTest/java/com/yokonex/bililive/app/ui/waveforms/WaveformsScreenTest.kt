@@ -16,10 +16,12 @@ class WaveformsScreenTest {
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun waveformScreen_showsLibraryAndEditorSections() {
+    fun waveformScreen_canEnterEditorFromCreateButton() {
         composeTestRule.onNodeWithText("波形库").performClick()
         composeTestRule.onNodeWithText("波形库列表").assertExists()
+        composeTestRule.onNodeWithText("新建空白波形").performClick()
         composeTestRule.onNodeWithText("波形编辑器").assertExists()
+        composeTestRule.onNodeWithText("新增步骤").assertExists()
         composeTestRule.onNodeWithText("保存波形").assertExists()
     }
 }

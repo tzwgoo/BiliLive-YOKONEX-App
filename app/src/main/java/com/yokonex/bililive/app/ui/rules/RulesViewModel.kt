@@ -224,8 +224,8 @@ private fun toUiRuleItem(
         when (rule.eventType) {
             LiveEventType.GIFT -> {
                 append("礼物事件")
-                rule.conditions.minPrice?.let { append("，总价值 >= $it") }
-                rule.conditions.maxPrice?.let { append("，总价值 <= $it") }
+                rule.conditions.minPrice?.let { append("，单个礼物价值 >= $it") }
+                rule.conditions.maxPrice?.let { append("，单个礼物价值 <= $it") }
             }
 
             LiveEventType.LIKE -> {

@@ -32,7 +32,7 @@ object RuleMatcher {
         rule: TriggerRule,
         payload: EventPayload.GiftPayload,
     ): Boolean {
-        val price = payload.totalPrice
+        val price = payload.price
         val minOk = rule.conditions.minPrice?.let { price >= it } ?: true
         val maxOk = rule.conditions.maxPrice?.let { price <= it } ?: true
         return minOk && maxOk

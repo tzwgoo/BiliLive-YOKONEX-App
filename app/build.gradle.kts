@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.chaquopy.python)
     alias(libs.plugins.kotlin.android)
 }
 
@@ -23,6 +24,10 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -59,11 +64,29 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version = libs.versions.python.get()
+        buildPython("C:/Users/hosgoo/AppData/Local/Programs/Python/Python311/python.exe")
+        pip {
+            install("aiohttp")
+            install("PyJWT")
+            install("python-requirements/qrcode-terminal-0.8.tar.gz")
+            install("bilibili-api-python>=17.4.1")
+        }
+        pyc {
+            src = false
+            pip = false
+        }
     }
 }
 
@@ -75,12 +98,14 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    implementation(libs.brotli.dec)
 
     testImplementation(libs.junit4)
     testImplementation(libs.kotlinx.coroutines.test)

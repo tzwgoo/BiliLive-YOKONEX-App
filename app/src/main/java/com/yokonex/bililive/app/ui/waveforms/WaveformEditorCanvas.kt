@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,7 +21,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.yokonex.bililive.domain.model.WaveformDefinition
-import kotlin.math.abs
 
 @Composable
 fun WaveformEditorCanvas(
@@ -34,6 +35,11 @@ fun WaveformEditorCanvas(
     val channelBColor = MaterialTheme.colorScheme.tertiary
     val outlineColor = MaterialTheme.colorScheme.outlineVariant
     val segmentDurations = waveform?.steps?.map { it.durationMs.coerceAtLeast(1) }.orEmpty()
+    val currentWaveform by rememberUpdatedState(waveform)
+    val currentEditable by rememberUpdatedState(editable)
+    val currentSegmentDurations by rememberUpdatedState(segmentDurations)
+    val currentOnInsertStep by rememberUpdatedState(onInsertStep)
+    val currentOnStrengthDrag by rememberUpdatedState(onStrengthDrag)
 
     if (waveform == null || waveform.steps.isEmpty()) {
         Box(
@@ -59,44 +65,54 @@ fun WaveformEditorCanvas(
             .height(220.dp)
             .clip(MaterialTheme.shapes.large)
             .background(canvasBackground)
-            .pointerInput(waveform, editable) {
+            .pointerInput(editable) {
                 detectTapGestures { offset ->
-                    if (!editable) {
+                    if (!currentEditable) {
                         return@detectTapGestures
                     }
                     val widths = segmentWidths(
                         totalWidth = size.width.toFloat(),
-                        segmentDurations = segmentDurations,
+                        segmentDurations = currentSegmentDurations,
                     )
                     insertIndexFromBoundaryX(
                         x = offset.x,
                         segmentWidths = widths,
                         tolerance = 18f,
-                    )?.let(onInsertStep)
+                    )?.let(currentOnInsertStep)
                 }
             }
-            .pointerInput(waveform, editable) {
-                var activeDrag: Pair<Int, WaveformChannel>? = null
+            .pointerInput(editable) {
+                var activeDrag: WaveformDragTarget? = null
                 detectDragGestures(
                     onDragStart = { offset ->
-                        if (!editable) {
+                        if (!currentEditable) {
                             return@detectDragGestures
                         }
+                        val activeWaveform = currentWaveform ?: return@detectDragGestures
                         val widths = segmentWidths(
                             totalWidth = size.width.toFloat(),
-                            segmentDurations = segmentDurations,
+                            segmentDurations = currentSegmentDurations,
                         )
-                        val stepIndex = segmentIndexFromCanvasX(offset.x, widths) ?: return@detectDragGestures
-                        val step = waveform.steps[stepIndex]
-                        val aY = strengthToCanvasY(step.channelA, size.height.toFloat())
-                        val bY = strengthToCanvasY(step.channelB, size.height.toFloat())
-                        val channel = if (abs(offset.y - aY) <= abs(offset.y - bY)) {
-                            WaveformChannel.A
-                        } else {
-                            WaveformChannel.B
+                        val channelAYs = activeWaveform.steps.map { step ->
+                            strengthToCanvasY(step.channelA, size.height.toFloat())
                         }
-                        activeDrag = stepIndex to channel
-                        onStrengthDrag(stepIndex, channel, strengthFromCanvasY(offset.y, size.height.toFloat()))
+                        val channelBYs = activeWaveform.steps.map { step ->
+                            strengthToCanvasY(step.channelB, size.height.toFloat())
+                        }
+                        val dragTarget = resolveDragTarget(
+                            x = offset.x,
+                            y = offset.y,
+                            segmentWidths = widths,
+                            channelAYs = channelAYs,
+                            channelBYs = channelBYs,
+                            handleRadius = 24f,
+                        ) ?: return@detectDragGestures
+                        activeDrag = dragTarget
+                        currentOnStrengthDrag(
+                            dragTarget.stepIndex,
+                            dragTarget.channel,
+                            strengthFromCanvasY(offset.y, size.height.toFloat()),
+                        )
                     },
                     onDragEnd = {
                         activeDrag = null
@@ -106,9 +122,9 @@ fun WaveformEditorCanvas(
                     },
                     onDrag = { change, _ ->
                         val currentDrag = activeDrag ?: return@detectDragGestures
-                        onStrengthDrag(
-                            currentDrag.first,
-                            currentDrag.second,
+                        currentOnStrengthDrag(
+                            currentDrag.stepIndex,
+                            currentDrag.channel,
                             strengthFromCanvasY(change.position.y, size.height.toFloat()),
                         )
                         change.consume()
@@ -133,6 +149,8 @@ fun WaveformEditorCanvas(
             )
             val aY = strengthToCanvasY(step.channelA, size.height)
             val bY = strengthToCanvasY(step.channelB, size.height)
+            val aHandleX = channelHandleX(startX, segmentWidth, WaveformChannel.A)
+            val bHandleX = channelHandleX(startX, segmentWidth, WaveformChannel.B)
             drawLine(
                 color = channelAColor,
                 start = Offset(startX, aY),
@@ -143,17 +161,29 @@ fun WaveformEditorCanvas(
                 color = channelBColor,
                 start = Offset(startX, bY),
                 end = Offset(endX, bY),
-                strokeWidth = 4f,
+                strokeWidth = 6f,
             )
             drawCircle(
                 color = channelAColor,
-                radius = 10f,
-                center = Offset((startX + endX) / 2f, aY),
+                radius = 11f,
+                center = Offset(aHandleX, aY),
             )
             drawCircle(
                 color = channelBColor,
-                radius = 8f,
-                center = Offset((startX + endX) / 2f, bY),
+                radius = 11f,
+                center = Offset(bHandleX, bY),
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = 0.45f),
+                radius = 15f,
+                center = Offset(aHandleX, aY),
+                style = Stroke(width = 2f),
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = 0.45f),
+                radius = 15f,
+                center = Offset(bHandleX, bY),
+                style = Stroke(width = 2f),
             )
             if (index < waveform.steps.lastIndex) {
                 drawLine(

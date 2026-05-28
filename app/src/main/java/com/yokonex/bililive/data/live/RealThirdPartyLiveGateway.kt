@@ -23,6 +23,7 @@ interface BinarySocketConnection {
 
 class RealThirdPartyLiveGateway(
     private val liveRoomClient: LiveRoomClient = DefaultBilibiliLiveRoomClient(),
+    private val liveApi: BilibiliLiveApi = OkHttpBilibiliLiveApi(),
     private val socketConnectionFactory: (String) -> BinarySocketConnection = { url ->
         OkHttpBinarySocketConnection(url)
     },
@@ -36,6 +37,9 @@ class RealThirdPartyLiveGateway(
         val session = BilibiliLiveDanmakuSession(
             sessionInfo = sessionInfo,
             socketConnectionFactory = socketConnectionFactory,
+            webHeartbeatSender = { realRoomId ->
+                liveApi.sendWebHeartbeat(realRoomId)
+            },
         )
 
         try {
@@ -44,7 +48,8 @@ class RealThirdPartyLiveGateway(
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            throw error
         }
     }
 }

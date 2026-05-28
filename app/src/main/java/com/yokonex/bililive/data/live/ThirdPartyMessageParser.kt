@@ -11,6 +11,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.concurrent.atomic.AtomicLong
 
 class ThirdPartyMessageParser(
     private val roomId: String,
@@ -27,8 +28,13 @@ class BilibiliDanmakuEventNormalizer(
     private val roomId: String,
     private val timestampProvider: () -> Long = System::currentTimeMillis,
 ) {
+    private val eventSequence = AtomicLong(0L)
+
     fun normalize(rawMessage: String): LiveEvent {
         val root = Json.parseToJsonElement(rawMessage).jsonObject
+        if (root.containsKey("event_type") && root.containsKey("payload")) {
+            return normalizeMappedEvent(root)
+        }
         val message = ThirdPartyMessage(
             cmd = normalizeCmd(root.string("cmd")),
             data = root["data"]?.jsonObject ?: JsonObject(emptyMap()),
@@ -53,6 +59,74 @@ class BilibiliDanmakuEventNormalizer(
         }
     }
 
+    private fun normalizeMappedEvent(root: JsonObject): LiveEvent {
+        val mappedRoomId = root.stringAny("room_id", "roomId").ifEmpty { roomId }
+        val userId = root.stringAny("open_id", "uid")
+        val userName = root.stringAny("uname", "user_name", "username")
+        val timestamp = root.long("timestamp").takeIf { it > 0 } ?: timestampProvider()
+        val cmd = normalizeCmd(root.string("cmd").ifEmpty { root.string("event_type") })
+        val payload = root["payload"]?.jsonObject ?: JsonObject(emptyMap())
+
+        return when (root.string("event_type")) {
+            "gift" -> {
+                val price = payload.int("price")
+                val giftNum = payload.intAny("gift_num", "giftNum", "num").coerceAtLeast(1)
+                val totalPrice = payload.intAny("r_price", "total_coin", "combo_total_coin").takeIf { it > 0 }
+                    ?: price * giftNum
+                LiveEvent(
+                    id = nextEventId(cmd),
+                    type = LiveEventType.GIFT,
+                    timestamp = timestamp,
+                    userId = userId,
+                    userName = userName,
+                    roomId = mappedRoomId,
+                    payload = EventPayload.GiftPayload(
+                        giftName = payload.stringAny("gift_name", "giftName").ifEmpty { "礼物" },
+                        giftNum = giftNum,
+                        price = price,
+                        totalPrice = totalPrice,
+                    ),
+                )
+            }
+
+            "like" -> LiveEvent(
+                id = nextEventId(cmd),
+                type = LiveEventType.LIKE,
+                timestamp = timestamp,
+                userId = userId,
+                userName = userName,
+                roomId = mappedRoomId,
+                payload = EventPayload.LikePayload(
+                    likeCount = payload.intAny("like_count", "click_count", "count"),
+                    likeText = payload.stringOrDefault("like_text", "点赞"),
+                    likeDelta = payload.int("like_delta"),
+                ),
+            )
+
+            "danmaku" -> LiveEvent(
+                id = nextEventId(cmd),
+                type = LiveEventType.DANMAKU,
+                timestamp = timestamp,
+                userId = userId,
+                userName = userName,
+                roomId = mappedRoomId,
+                payload = EventPayload.DanmakuPayload(
+                    message = payload.stringAny("msg", "message"),
+                ),
+            )
+
+            else -> LiveEvent(
+                id = nextEventId(cmd),
+                type = LiveEventType.SYSTEM,
+                timestamp = timestamp,
+                userId = userId,
+                userName = userName,
+                roomId = mappedRoomId,
+                payload = EventPayload.SystemPayload(message = cmd),
+            )
+        }
+    }
+
     private fun normalizeCmd(cmd: String): String =
         when {
             cmd.contains("RECALL_DANMU_MSG") -> "RECALL_DANMU_MSG"
@@ -67,7 +141,7 @@ class BilibiliDanmakuEventNormalizer(
         val totalPrice = data.intAny("combo_total_coin", "total_coin", "r_price").takeIf { it > 0 }
             ?: price * giftNum
         return LiveEvent(
-            id = "${message.cmd}-${timestampProvider()}",
+            id = nextEventId(message.cmd),
             type = LiveEventType.GIFT,
             timestamp = data.longAny("timestamp", "start_time", "ts").takeIf { it > 0 } ?: timestampProvider(),
             userId = data.string("uid"),
@@ -86,7 +160,7 @@ class BilibiliDanmakuEventNormalizer(
         val data = message.data
         val likeCount = data.intAny("like_count", "click_count", "count")
         return LiveEvent(
-            id = "${message.cmd}-${timestampProvider()}",
+            id = nextEventId(message.cmd),
             type = LiveEventType.LIKE,
             timestamp = data.long("timestamp").takeIf { it > 0 } ?: timestampProvider(),
             userId = data.string("uid"),
@@ -105,7 +179,7 @@ class BilibiliDanmakuEventNormalizer(
         val userInfo = message.info.arrayAt(2)
         val infoHead = message.info.arrayAt(0)
         return LiveEvent(
-            id = "${message.cmd}-${timestampProvider()}",
+            id = nextEventId(message.cmd),
             type = LiveEventType.DANMAKU,
             timestamp = infoHead.longAt(4).takeIf { it > 0 } ?: timestampProvider(),
             userId = userInfo.stringAt(0),
@@ -119,7 +193,7 @@ class BilibiliDanmakuEventNormalizer(
 
     private fun mapSystem(message: ThirdPartyMessage): LiveEvent =
         LiveEvent(
-            id = "${message.cmd}-${timestampProvider()}",
+            id = nextEventId(message.cmd),
             type = LiveEventType.SYSTEM,
             timestamp = timestampProvider(),
             userId = "",
@@ -127,6 +201,9 @@ class BilibiliDanmakuEventNormalizer(
             roomId = roomId,
             payload = EventPayload.SystemPayload(message = message.cmd),
         )
+
+    private fun nextEventId(prefix: String): String =
+        "$prefix-${timestampProvider()}-${eventSequence.getAndIncrement()}"
 
     private fun JsonObject.string(key: String): String =
         this[key]?.jsonPrimitive?.content ?: ""

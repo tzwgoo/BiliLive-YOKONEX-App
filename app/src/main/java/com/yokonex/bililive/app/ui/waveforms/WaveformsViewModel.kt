@@ -46,7 +46,12 @@ class WaveformsViewModel(
 
     fun selectWaveform(waveformId: String) {
         _uiState.update { current ->
-            if (current.isDirty && current.selectedWaveformId != waveformId) {
+            if (current.isDirty && current.selectedWaveformId == waveformId && current.draftWaveform?.id == waveformId) {
+                current.copy(
+                    isEditorVisible = true,
+                    pendingSelectionWaveformId = null,
+                )
+            } else if (current.isDirty && current.selectedWaveformId != waveformId) {
                 current.copy(
                     pendingSelectionWaveformId = waveformId,
                     editorMessage = "当前波形还有未保存更改",
@@ -58,6 +63,7 @@ class WaveformsViewModel(
                     draftWaveform = selected,
                     isDirty = false,
                     pendingSelectionWaveformId = null,
+                    isEditorVisible = true,
                 )
             }
         }
@@ -72,6 +78,7 @@ class WaveformsViewModel(
                 draftWaveform = selected,
                 isDirty = false,
                 pendingSelectionWaveformId = null,
+                isEditorVisible = true,
             )
         }
     }
@@ -92,8 +99,18 @@ class WaveformsViewModel(
                     draftWaveform = created,
                     isDirty = false,
                     editorMessage = "已创建新波形",
+                    isEditorVisible = true,
                 )
             }
+        }
+    }
+
+    fun closeEditor() {
+        _uiState.update { current ->
+            current.copy(
+                isEditorVisible = false,
+                pendingSelectionWaveformId = null,
+            )
         }
     }
 
@@ -134,6 +151,11 @@ class WaveformsViewModel(
         }
     }
 
+    fun appendStep() {
+        val insertIndex = _uiState.value.draftWaveform?.steps?.size ?: return
+        insertStep(insertIndex)
+    }
+
     fun duplicateStep(stepIndex: Int) {
         _uiState.update { current ->
             val draft = current.draftWaveform ?: return@update current
@@ -164,6 +186,13 @@ class WaveformsViewModel(
         }
     }
 
+    fun removeLastStep() {
+        val lastIndex = (_uiState.value.draftWaveform?.steps?.lastIndex ?: -1)
+        if (lastIndex >= 0) {
+            deleteStep(lastIndex)
+        }
+    }
+
     fun saveDraft() {
         val repository = waveformLibraryRepository ?: return
         val draft = _uiState.value.draftWaveform ?: return
@@ -175,6 +204,7 @@ class WaveformsViewModel(
                     draftWaveform = saved,
                     isDirty = false,
                     editorMessage = "波形已保存",
+                    isEditorVisible = true,
                 )
             }
         }
@@ -207,6 +237,7 @@ class WaveformsViewModel(
                     current.copy(
                         pendingDeleteWaveformId = null,
                         editorMessage = "波形已删除",
+                        isEditorVisible = false,
                     )
                 }
             }.onFailure { error ->
@@ -234,6 +265,7 @@ class WaveformsViewModel(
                     draftWaveform = duplicated,
                     isDirty = false,
                     editorMessage = "已复制为自定义波形",
+                    isEditorVisible = true,
                 )
             }
         }
@@ -288,6 +320,7 @@ data class WaveformsUiState(
     val draftWaveform: WaveformDefinition? = null,
     val isDirty: Boolean = false,
     val editorMessage: String = "",
+    val isEditorVisible: Boolean = false,
     val pendingSelectionWaveformId: String? = null,
     val pendingDeleteWaveformId: String? = null,
 )

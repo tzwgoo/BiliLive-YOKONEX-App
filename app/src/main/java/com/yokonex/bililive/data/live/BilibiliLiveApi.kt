@@ -3,6 +3,7 @@ package com.yokonex.bililive.data.live
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,6 +45,8 @@ interface BilibiliLiveApi {
     suspend fun getRoomInfo(roomId: String): BilibiliRoomInfo
 
     suspend fun getMasterInfo(uid: Long): BilibiliMasterInfo
+
+    suspend fun sendWebHeartbeat(realRoomId: String)
 }
 
 class OkHttpBilibiliLiveApi(
@@ -151,6 +154,33 @@ class OkHttpBilibiliLiveApi(
         )
     }
 
+    override suspend fun sendWebHeartbeat(realRoomId: String) {
+        withContext(Dispatchers.IO) {
+            val heartbeatPayload = Base64.getEncoder()
+                .encodeToString("60|$realRoomId|1|0".toByteArray(StandardCharsets.UTF_8))
+            val headers = requestContext.buildHeaders(
+                roomId = realRoomId,
+                includeBuvid = true,
+                client = client,
+                json = json,
+            )
+            val request = Request.Builder()
+                .url(
+                    "$WEB_HEARTBEAT_URL?pf=web&hb=${
+                        URLEncoder.encode(heartbeatPayload, StandardCharsets.UTF_8.name())
+                    }",
+                )
+            headers.forEach { (name, value) ->
+                request.header(name, value)
+            }
+            client.newCall(request.build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("发送 Web 心跳失败: HTTP ${response.code}")
+                }
+            }
+        }
+    }
+
     private suspend fun executeJsonRequest(
         url: String,
         roomId: String,
@@ -191,6 +221,8 @@ class OkHttpBilibiliLiveApi(
             "https://api.live.bilibili.com/room/v1/Danmu/getConf"
         private const val MASTER_INFO_URL =
             "https://api.live.bilibili.com/live_user/v1/Master/info"
+        private const val WEB_HEARTBEAT_URL =
+            "https://live-trace.bilibili.com/xlive/rdata-interface/v1/heartbeat/webHeartBeat"
     }
 }
 

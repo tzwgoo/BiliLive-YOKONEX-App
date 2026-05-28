@@ -7,21 +7,29 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.yokonex.bililive.domain.model.GiftTriggerMode
 import com.yokonex.bililive.app.ui.components.StatusCard
 
 @Composable
@@ -30,13 +38,18 @@ fun LiveConfigScreen(
     onRoomIdChange: (String) -> Unit,
     onAutoReconnectChange: (Boolean) -> Unit,
     onReconnectIntervalChange: (String) -> Unit,
+    onGiftTriggerModeChange: (GiftTriggerMode) -> Unit,
     onLikeMultipleChange: (String) -> Unit,
     onDanmakuEnabledChange: (Boolean) -> Unit,
     onDanmakuKeywordsChange: (String) -> Unit,
     onDanmakuCooldownSecondsChange: (String) -> Unit,
+    onRefreshBatteryOptimizationStatus: () -> Unit,
+    onRequestIgnoreBatteryOptimization: () -> Unit,
+    onOpenBatteryOptimizationSettings: () -> Unit,
     onToggleMonitoring: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
+    val lifecycleOwner = LocalLifecycleOwner.current
     var roomIdFieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(
             TextFieldValue(
@@ -70,6 +83,17 @@ fun LiveConfigScreen(
             )
         }
     }
+    DisposableEffect(lifecycleOwner, onRefreshBatteryOptimizationStatus) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                onRefreshBatteryOptimizationStatus()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -83,7 +107,7 @@ fun LiveConfigScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "直播间配置",
+                    text = "直播配置",
                     style = MaterialTheme.typography.headlineMedium,
                 )
                 Text(
@@ -99,6 +123,31 @@ fun LiveConfigScreen(
                 value = uiState.monitoringStatus,
                 supportingText = "消息源：${uiState.providerName}",
             )
+        }
+        item {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                StatusCard(
+                    title = "息屏保活",
+                    value = uiState.batteryOptimizationStatus,
+                    supportingText = uiState.batteryOptimizationHint,
+                )
+                if (uiState.shouldShowBatteryOptimizationAction) {
+                    Button(
+                        onClick = onRequestIgnoreBatteryOptimization,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("申请关闭电池优化")
+                    }
+                    TextButton(
+                        onClick = onOpenBatteryOptimizationSettings,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("打开系统电池优化设置")
+                    }
+                }
+            }
         }
         item {
             Button(
@@ -147,6 +196,41 @@ fun LiveConfigScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
+        }
+        item {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "礼物参数",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = "礼物档位按单个礼物价值匹配，触发次数按这里的全局模式决定。当前：${uiState.giftTriggerModeLabel}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        item {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item {
+                    FilterChip(
+                        selected = uiState.giftTriggerMode == GiftTriggerMode.SINGLE,
+                        onClick = { onGiftTriggerModeChange(GiftTriggerMode.SINGLE) },
+                        label = { Text("单次触发") },
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = uiState.giftTriggerMode == GiftTriggerMode.BY_QUANTITY,
+                        onClick = { onGiftTriggerModeChange(GiftTriggerMode.BY_QUANTITY) },
+                        label = { Text("按数量触发") },
+                    )
+                }
+            }
         }
         item {
             Text(

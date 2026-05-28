@@ -12,7 +12,10 @@ import com.yokonex.bililive.data.live.DefaultBilibiliLiveRoomClient
 import com.yokonex.bililive.data.live.RealThirdPartyLiveGateway
 import com.yokonex.bililive.data.live.BilibiliRoomProfileRepository
 import com.yokonex.bililive.data.live.LiveRoomClient
+import com.yokonex.bililive.data.live.PythonBackedThirdPartyLiveGateway
+import com.yokonex.bililive.data.live.ChaquopyPythonThirdPartyBridge
 import com.yokonex.bililive.data.live.RoomProfileRepository
+import com.yokonex.bililive.data.live.ThirdPartyLiveGateway
 import com.yokonex.bililive.data.mapper.RuleMapper
 import com.yokonex.bililive.data.mapper.WaveformMapper
 import com.yokonex.bililive.data.storage.DefaultWaveforms
@@ -26,6 +29,7 @@ import com.yokonex.bililive.data.waveform.WaveformLibraryRepository
 import com.yokonex.bililive.data.websocket.CommandSocketClient
 import com.yokonex.bililive.data.websocket.OkHttpCommandSocketClient
 import com.yokonex.bililive.domain.model.ActionBindings
+import com.yokonex.bililive.domain.model.GiftTriggerMode
 import com.yokonex.bililive.domain.model.KeywordMatchMode
 import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.OutputAction
@@ -34,6 +38,7 @@ import com.yokonex.bililive.domain.model.RuleConditions
 import com.yokonex.bililive.domain.model.TriggerRule
 import com.yokonex.bililive.domain.usecase.OutputModeProvider
 import com.yokonex.bililive.domain.usecase.ProcessLiveEventUseCase
+import com.yokonex.bililive.domain.usecase.GiftTriggerModeProvider
 import com.yokonex.bililive.service.MonitoringConfig
 import com.yokonex.bililive.service.MonitoringConfigProvider
 import com.yokonex.bililive.service.ServiceCoordinator
@@ -86,6 +91,7 @@ class AppContainer(
     private val processLiveEventUseCase = ProcessLiveEventUseCase(
         ruleRepository = ruleStore,
         outputModeProvider = SettingsOutputModeProvider(settingsStore),
+        giftTriggerModeProvider = SettingsGiftTriggerModeProvider(settingsStore),
         bluetoothRepository = bluetoothRepository,
         commandSocketClient = commandSocketClient,
         eventLogRepository = eventLogStore,
@@ -93,7 +99,7 @@ class AppContainer(
 
     val serviceCoordinator = ServiceCoordinator(
         configProvider = SettingsMonitoringConfigProvider(settingsStore),
-        liveGateway = RealThirdPartyLiveGateway(liveRoomClient = liveRoomClient),
+        liveGateway = createThirdPartyLiveGateway(context, liveRoomClient),
         commandSocketClient = commandSocketClient,
         eventProcessor = processLiveEventUseCase::invoke,
     )
@@ -104,6 +110,18 @@ class AppContainer(
         }
     }
 }
+
+private fun createThirdPartyLiveGateway(
+    context: Context,
+    liveRoomClient: LiveRoomClient,
+): ThirdPartyLiveGateway =
+    if (BuildConfig.DEBUG) {
+        PythonBackedThirdPartyLiveGateway(
+            bridge = ChaquopyPythonThirdPartyBridge(context.applicationContext),
+        )
+    } else {
+        RealThirdPartyLiveGateway(liveRoomClient = liveRoomClient)
+    }
 
 object AppServices {
     var applicationContext: Context? = null
@@ -120,6 +138,7 @@ private class SettingsMonitoringConfigProvider(
             websocketEndpoint = settingsStore.websocketEndpoint.first(),
             websocketUid = settingsStore.websocketUid.first(),
             websocketToken = settingsStore.websocketToken.first(),
+            autoReconnectEnabled = settingsStore.autoReconnectEnabled.first(),
             reconnectIntervalMillis = settingsStore.reconnectIntervalSeconds.first().toLong() * 1_000L,
         )
 }
@@ -129,6 +148,13 @@ private class SettingsOutputModeProvider(
 ) : OutputModeProvider {
     override suspend fun getCurrentMode(): OutputMode =
         settingsStore.outputMode.first()
+}
+
+private class SettingsGiftTriggerModeProvider(
+    private val settingsStore: SettingsStore,
+) : GiftTriggerModeProvider {
+    override suspend fun getCurrentMode(): GiftTriggerMode =
+        settingsStore.giftTriggerMode.first()
 }
 
 private fun buildDefaultRules(): List<TriggerRule> {

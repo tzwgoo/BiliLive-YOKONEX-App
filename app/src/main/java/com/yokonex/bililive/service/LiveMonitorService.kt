@@ -18,14 +18,19 @@ import kotlinx.coroutines.launch
 
 class LiveMonitorService : Service() {
     private lateinit var notificationFactory: NotificationFactory
+    private lateinit var wakeLockController: MonitoringWakeLockController
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var hasEnteredForeground: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
         notificationFactory = NotificationFactory(this)
+        wakeLockController = MonitoringWakeLockController(AndroidWakeLockFactory(applicationContext))
         serviceScope.launch {
             AppServices.container?.serviceCoordinator?.status?.collect { status ->
+                if (status is ServiceStatus.Error || status is ServiceStatus.Idle || status is ServiceStatus.Stopping) {
+                    wakeLockController.release()
+                }
                 if (shouldStopMonitoringService(status, hasEnteredForeground)) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
@@ -62,6 +67,7 @@ class LiveMonitorService : Service() {
             outputMode.toForegroundServiceType(),
         )
         hasEnteredForeground = true
+        wakeLockController.ensureAcquired()
         serviceScope.launch {
             AppServices.container?.serviceCoordinator?.start()
         }
@@ -72,6 +78,7 @@ class LiveMonitorService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        wakeLockController.release()
         serviceScope.cancel()
     }
 

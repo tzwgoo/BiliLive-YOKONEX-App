@@ -36,7 +36,10 @@ interface CommandSocketClient {
 
     suspend fun disconnect()
 
-    suspend fun sendCommand(commandSlot: String)
+    suspend fun sendCommand(
+        commandSlot: String,
+        repeatCount: Int = 1,
+    )
 }
 
 enum class CommandSocketState {
@@ -114,24 +117,29 @@ class OkHttpCommandSocketClient(
         }
     }
 
-    override suspend fun sendCommand(commandSlot: String) {
+    override suspend fun sendCommand(
+        commandSlot: String,
+        repeatCount: Int,
+    ) {
         mutex.withLock {
             ensureConnectedLocked()
-            connection?.send(payloadFactory.buildSendCommand(userId, commandSlot))
-            while (true) {
-                val message = receiveJsonLocked()
-                when (message["type"]?.jsonPrimitive?.content.orEmpty()) {
-                    "commandResult" -> return
-                    "pong",
-                    "connected",
-                    "heartbeat",
-                    "status",
-                    "network",
-                    "message",
-                    -> continue
+            repeat(repeatCount.coerceAtLeast(1)) {
+                connection?.send(payloadFactory.buildSendCommand(userId, commandSlot))
+                while (true) {
+                    val message = receiveJsonLocked()
+                    when (message["type"]?.jsonPrimitive?.content.orEmpty()) {
+                        "commandResult" -> break
+                        "pong",
+                        "connected",
+                        "heartbeat",
+                        "status",
+                        "network",
+                        "message",
+                        -> continue
 
-                    "error" -> {
-                        throw RuntimeException(message["message"]?.jsonPrimitive?.content ?: "下游指令通道返回错误")
+                        "error" -> {
+                            throw RuntimeException(message["message"]?.jsonPrimitive?.content ?: "下游指令通道返回错误")
+                        }
                     }
                 }
             }

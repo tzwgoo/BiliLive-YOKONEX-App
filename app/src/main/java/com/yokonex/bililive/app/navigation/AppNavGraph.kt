@@ -1,5 +1,14 @@
 package com.yokonex.bililive.app.navigation
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.BluetoothSearching
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.SettingsInputAntenna
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -9,6 +18,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -16,6 +27,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.yokonex.bililive.app.ui.dashboard.DashboardScreen
 import com.yokonex.bililive.app.ui.dashboard.DashboardViewModel
+import com.yokonex.bililive.app.ui.live.BatteryOptimizationNavigator
 import com.yokonex.bililive.app.ui.live.LiveConfigScreen
 import com.yokonex.bililive.app.ui.live.LiveConfigViewModel
 import com.yokonex.bililive.app.ui.logs.LogsScreen
@@ -30,14 +42,8 @@ import com.yokonex.bililive.app.ui.waveforms.WaveformsViewModel
 @Composable
 fun AppNavGraph() {
     val navController = rememberNavController()
-    val navigationItems = listOf(
-        NavigationItem("dashboard", "状态", "状"),
-        NavigationItem("live", "直播间配置", "播"),
-        NavigationItem("output", "设备连接", "设"),
-        NavigationItem("rules", "规则配置", "规"),
-        NavigationItem("waveforms", "波形库", "形"),
-        NavigationItem("logs", "日志", "记"),
-    )
+    val context = LocalContext.current
+    val navigationItems = appNavigationItems()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
 
@@ -59,7 +65,12 @@ fun AppNavGraph() {
                                     }
                                 }
                             },
-                            icon = { Text(item.iconText) },
+                            icon = {
+                                Icon(
+                                    imageVector = item.iconKey.imageVector,
+                                    contentDescription = item.label,
+                                )
+                            },
                             label = { Text(item.label) },
                         )
                     }
@@ -86,10 +97,14 @@ fun AppNavGraph() {
                         onRoomIdChange = liveConfigViewModel::updateRoomId,
                         onAutoReconnectChange = liveConfigViewModel::toggleAutoReconnect,
                         onReconnectIntervalChange = liveConfigViewModel::updateReconnectInterval,
+                        onGiftTriggerModeChange = liveConfigViewModel::updateGiftTriggerMode,
                         onLikeMultipleChange = liveConfigViewModel::updateLikeMultiple,
                         onDanmakuEnabledChange = liveConfigViewModel::updateDanmakuEnabled,
                         onDanmakuKeywordsChange = liveConfigViewModel::updateDanmakuKeywords,
                         onDanmakuCooldownSecondsChange = liveConfigViewModel::updateDanmakuCooldownSeconds,
+                        onRefreshBatteryOptimizationStatus = liveConfigViewModel::refreshBatteryOptimizationStatus,
+                        onRequestIgnoreBatteryOptimization = { BatteryOptimizationNavigator.openIgnoreRequest(context) },
+                        onOpenBatteryOptimizationSettings = { BatteryOptimizationNavigator.openSettings(context) },
                         onToggleMonitoring = liveConfigViewModel::toggleMonitoring,
                         contentPadding = innerPadding,
                     )
@@ -127,6 +142,7 @@ fun AppNavGraph() {
                     val uiState by logsViewModel.uiState.collectAsState()
                     LogsScreen(
                         uiState = uiState,
+                        onFilterSelected = logsViewModel::selectFilter,
                         contentPadding = innerPadding,
                     )
                 }
@@ -137,10 +153,13 @@ fun AppNavGraph() {
                         uiState = uiState,
                         onSelectWaveform = waveformsViewModel::selectWaveform,
                         onCreateWaveform = waveformsViewModel::createWaveform,
+                        onCloseEditor = waveformsViewModel::closeEditor,
                         onDuplicateSelectedWaveform = waveformsViewModel::duplicateSelectedWaveform,
                         onSaveDraft = waveformsViewModel::saveDraft,
                         onWaveformNameChange = waveformsViewModel::updateWaveformName,
                         onUpdateStepDuration = waveformsViewModel::updateStepDuration,
+                        onAppendStep = waveformsViewModel::appendStep,
+                        onRemoveLastStep = waveformsViewModel::removeLastStep,
                         onDuplicateStep = waveformsViewModel::duplicateStep,
                         onDeleteStep = waveformsViewModel::deleteStep,
                         onStrengthDrag = waveformsViewModel::updateDraftStrength,
@@ -158,8 +177,36 @@ fun AppNavGraph() {
     }
 }
 
-private data class NavigationItem(
+internal fun appNavigationItems(): List<NavigationItemSpec> = listOf(
+    NavigationItemSpec("dashboard", "状态", NavigationIcon.Dashboard),
+    NavigationItemSpec("live", "直播配置", NavigationIcon.Live),
+    NavigationItemSpec("output", "设备连接", NavigationIcon.Output),
+    NavigationItemSpec("rules", "规则配置", NavigationIcon.Rules),
+    NavigationItemSpec("waveforms", "波形库", NavigationIcon.Waveforms),
+    NavigationItemSpec("logs", "日志", NavigationIcon.Logs),
+)
+
+internal data class NavigationItemSpec(
     val route: String,
     val label: String,
-    val iconText: String,
+    val iconKey: NavigationIcon,
 )
+
+internal enum class NavigationIcon {
+    Dashboard,
+    Live,
+    Output,
+    Rules,
+    Waveforms,
+    Logs,
+}
+
+private val NavigationIcon.imageVector: ImageVector
+    get() = when (this) {
+        NavigationIcon.Dashboard -> Icons.Filled.Dashboard
+        NavigationIcon.Live -> Icons.Filled.SettingsInputAntenna
+        NavigationIcon.Output -> Icons.AutoMirrored.Filled.BluetoothSearching
+        NavigationIcon.Rules -> Icons.Filled.Tune
+        NavigationIcon.Waveforms -> Icons.Filled.GraphicEq
+        NavigationIcon.Logs -> Icons.AutoMirrored.Filled.ReceiptLong
+    }

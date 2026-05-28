@@ -8,4 +8,30 @@ build/
 */build/
 captures/
 *.iml
+*.ipr
+*.iws
+out/
+.cxx/
+externalNativeBuild/
 
+# Android signing
+keystore.properties
+*.jks
+*.keystore
+
+# Python / Chaquopy
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# OS / editor
+.DS_Store
+Thumbs.db

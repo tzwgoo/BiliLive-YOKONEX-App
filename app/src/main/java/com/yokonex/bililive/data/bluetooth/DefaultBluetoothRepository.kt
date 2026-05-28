@@ -87,9 +87,7 @@ class DefaultBluetoothRepository(
                     deviceName = device.name,
                     batteryLevel = bleManager.telemetry.value.batteryLevel,
                 )
-                if (device.protocol == "ems_v2") {
-                    bleManager.write(protocolEncoder.createBatteryQueryPacket())
-                }
+                bleManager.write(protocolEncoder.createBatteryQueryPacket())
                 _connectionState.value = BluetoothConnectionState.CONNECTED
             }.getOrElse { error ->
                 connectedDevice = null
@@ -113,38 +111,43 @@ class DefaultBluetoothRepository(
         }
     }
 
-    override suspend fun playWaveform(waveformId: String) {
+    override suspend fun playWaveform(
+        waveformId: String,
+        repeatCount: Int,
+    ) {
         val device = connectedDevice ?: throw IllegalStateException("当前没有已连接的蓝牙设备")
         val waveform = waveformDao.findById(waveformId)
             ?.let(WaveformMapper::fromEntity)
             ?: builtinWaveforms[waveformId]
             ?: throw IllegalArgumentException("未找到波形 $waveformId")
-        waveformRuntime.play(
-            waveform = waveform,
-            protocol = device.protocol,
-            onStepStarted = { step ->
-                _runtimeStatus.update { currentStatus ->
-                    currentStatus.copy(
-                        connected = true,
-                        deviceName = device.name,
-                        waveformName = waveform.name,
-                        channelAStrength = step.channelA.coerceIn(0, 100),
-                        channelBStrength = step.channelB.coerceIn(0, 100),
-                    )
-                }
-            },
-            onCompleted = {
-                _runtimeStatus.update { currentStatus ->
-                    currentStatus.copy(
-                        connected = true,
-                        deviceName = device.name,
-                        waveformName = waveform.name,
-                        channelAStrength = 0,
-                        channelBStrength = 0,
-                    )
-                }
-            },
-        )
+        repeat(repeatCount.coerceAtLeast(1)) {
+            waveformRuntime.play(
+                waveform = waveform,
+                protocol = device.protocol,
+                onStepStarted = { step ->
+                    _runtimeStatus.update { currentStatus ->
+                        currentStatus.copy(
+                            connected = true,
+                            deviceName = device.name,
+                            waveformName = waveform.name,
+                            channelAStrength = step.channelA.coerceIn(0, 100),
+                            channelBStrength = step.channelB.coerceIn(0, 100),
+                        )
+                    }
+                },
+                onCompleted = {
+                    _runtimeStatus.update { currentStatus ->
+                        currentStatus.copy(
+                            connected = true,
+                            deviceName = device.name,
+                            waveformName = waveform.name,
+                            channelAStrength = 0,
+                            channelBStrength = 0,
+                        )
+                    }
+                },
+            )
+        }
     }
 
     private fun markConnectedDevice(

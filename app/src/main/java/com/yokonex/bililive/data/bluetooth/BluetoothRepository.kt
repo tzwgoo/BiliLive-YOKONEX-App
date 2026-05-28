@@ -16,5 +16,8 @@ interface BluetoothRepository {
 
     suspend fun disconnect()
 
-    suspend fun playWaveform(waveformId: String)
+    suspend fun playWaveform(
+        waveformId: String,
+        repeatCount: Int = 1,
+    )
 }

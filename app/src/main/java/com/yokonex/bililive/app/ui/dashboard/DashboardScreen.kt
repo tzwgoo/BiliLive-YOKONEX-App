@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -126,8 +127,51 @@ fun DashboardScreen(
                 style = MaterialTheme.typography.titleMedium,
             )
         }
-        items(uiState.recentEvents, key = { it.id }) { eventLog ->
-            EventLogItem(eventLog = eventLog)
+        items(uiState.recentEventSections, key = { it.title }) { section ->
+            DashboardEventSectionCard(section = section)
+        }
+    }
+}
+
+@Composable
+private fun DashboardEventSectionCard(
+    section: DashboardEventSection,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(16.dp),
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = section.title,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = section.supportingText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (section.events.isEmpty()) {
+                Text(
+                    text = "暂无${section.title}事件",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    section.events.forEach { eventLog ->
+                        EventLogItem(eventLog = eventLog)
+                    }
+                }
+            }
         }
     }
 }

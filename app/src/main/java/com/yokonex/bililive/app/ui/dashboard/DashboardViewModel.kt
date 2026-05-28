@@ -17,6 +17,7 @@ import com.yokonex.bililive.service.ServiceStatus
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.min
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -98,10 +99,7 @@ class DashboardViewModel(
                 store.logs.collect { logs ->
                     _uiState.update { currentState ->
                         currentState.copy(
-                            recentEvents = logs
-                                .filter { log -> log.eventType in LIVE_EVENT_TYPES }
-                                .take(10)
-                                .map(::toDashboardEventLog),
+                            recentEventSections = buildDashboardEventSections(logs),
                         )
                     }
                 }
@@ -143,7 +141,7 @@ data class DashboardUiState(
     val channelAStrength: Int = 0,
     val channelBStrength: Int = 0,
     val imStatus: String = "未连接",
-    val recentEvents: List<UiEventLog> = sampleRecentEvents(),
+    val recentEventSections: List<DashboardEventSection> = sampleDashboardEventSections(),
 ) {
     val serviceStatusLabel: String
         get() = when (serviceStatus) {
@@ -159,38 +157,62 @@ data class DashboardUiState(
         get() = if (outputMode == OutputMode.BLUETOOTH) "蓝牙 EMS" else "IM 指令"
 }
 
-private fun sampleRecentEvents(): List<UiEventLog> = listOf(
-    UiEventLog(
-        id = "evt_101",
-        title = "实时礼物",
-        detail = "用户 夏日汽水 送出 小心心 x10。",
-        timestampLabel = "刚刚",
-        statusLabel = "已触发",
-        success = true,
+data class DashboardEventSection(
+    val title: String,
+    val supportingText: String,
+    val events: List<UiEventLog>,
+)
+
+private fun sampleDashboardEventSections(): List<DashboardEventSection> = listOf(
+    DashboardEventSection(
+        title = "礼物",
+        supportingText = "最近 1 条礼物",
+        events = listOf(
+            UiEventLog(
+                id = "evt_101",
+                title = "实时礼物",
+                detail = "用户 夏日汽水 送出 小心心 x10。",
+                timestampLabel = "刚刚",
+                statusLabel = "已触发",
+                success = true,
+            ),
+        ),
     ),
-    UiEventLog(
-        id = "evt_102",
-        title = "实时点赞",
-        detail = "用户 阿航 点赞 30。",
-        timestampLabel = "1 分钟前",
-        statusLabel = "未命中",
-        success = false,
+    DashboardEventSection(
+        title = "点赞",
+        supportingText = "最近 2 条点赞",
+        events = listOf(
+            UiEventLog(
+                id = "evt_102",
+                title = "实时点赞",
+                detail = "用户 阿航 点赞 30。",
+                timestampLabel = "1 分钟前",
+                statusLabel = "未命中",
+                success = false,
+            ),
+            UiEventLog(
+                id = "evt_104",
+                title = "实时点赞",
+                detail = "用户 阿宁 点赞 120。",
+                timestampLabel = "4 分钟前",
+                statusLabel = "已触发",
+                success = true,
+            ),
+        ),
     ),
-    UiEventLog(
-        id = "evt_103",
-        title = "实时弹幕",
-        detail = "用户 晚风 发送弹幕 晚上好。",
-        timestampLabel = "3 分钟前",
-        statusLabel = "冷却跳过",
-        success = false,
-    ),
-    UiEventLog(
-        id = "evt_104",
-        title = "实时点赞",
-        detail = "用户 阿宁 点赞 120。",
-        timestampLabel = "4 分钟前",
-        statusLabel = "已触发",
-        success = true,
+    DashboardEventSection(
+        title = "弹幕",
+        supportingText = "最近 1 条弹幕",
+        events = listOf(
+            UiEventLog(
+                id = "evt_103",
+                title = "实时弹幕",
+                detail = "用户 晚风 发送弹幕 晚上好。",
+                timestampLabel = "3 分钟前",
+                statusLabel = "冷却跳过",
+                success = false,
+            ),
+        ),
     ),
 )
 
@@ -212,6 +234,51 @@ internal fun normalizeEventTimestampMillis(timestamp: Long): Long =
         timestamp * 1_000L
     } else {
         timestamp
+    }
+
+internal fun buildDashboardRecentEvents(logs: List<EventLogEntity>): List<UiEventLog> {
+    val liveLogs = logs
+        .filter { log -> log.eventType in LIVE_EVENT_TYPES }
+        .sortedByDescending(EventLogEntity::createdAt)
+    if (liveLogs.size <= DASHBOARD_RECENT_EVENT_LIMIT) {
+        return liveLogs.map(::toDashboardEventLog)
+    }
+
+    val pinnedIds = buildSet {
+        PRIORITIZED_EVENT_TYPES.forEach { eventType ->
+            liveLogs.firstOrNull { log -> log.eventType == eventType }?.let { log ->
+                add(log.id)
+            }
+        }
+    }
+
+    val prioritized = liveLogs.filter { log -> log.id in pinnedIds }
+    val remainder = liveLogs.filterNot { log -> log.id in pinnedIds }
+        .take(DASHBOARD_RECENT_EVENT_LIMIT - prioritized.size)
+
+    return (prioritized + remainder)
+        .sortedByDescending(EventLogEntity::createdAt)
+        .take(DASHBOARD_RECENT_EVENT_LIMIT)
+        .map(::toDashboardEventLog)
+}
+
+internal fun buildDashboardEventSections(logs: List<EventLogEntity>): List<DashboardEventSection> =
+    DASHBOARD_SECTION_TYPES.map { eventType ->
+        val title = when (eventType) {
+            "GIFT" -> "礼物"
+            "LIKE" -> "点赞"
+            else -> "弹幕"
+        }
+        val typedLogs = logs
+            .filter { log -> log.eventType == eventType }
+            .sortedByDescending(EventLogEntity::createdAt)
+        DashboardEventSection(
+            title = title,
+            supportingText = "最近 ${min(typedLogs.size, DASHBOARD_SECTION_EVENT_LIMIT)} 条$title",
+            events = typedLogs
+                .take(DASHBOARD_SECTION_EVENT_LIMIT)
+                .map(::toDashboardEventLog),
+        )
     }
 
 private fun dashboardEventTitle(eventType: String): String =
@@ -247,5 +314,9 @@ private fun CommandSocketState.toDisplayLabel(): String =
     }
 
 private val LIVE_EVENT_TYPES = setOf("GIFT", "LIKE", "DANMAKU")
+private val DASHBOARD_SECTION_TYPES = listOf("GIFT", "LIKE", "DANMAKU")
+private val PRIORITIZED_EVENT_TYPES = listOf("GIFT", "LIKE", "DANMAKU")
+private const val DASHBOARD_RECENT_EVENT_LIMIT = 10
+private const val DASHBOARD_SECTION_EVENT_LIMIT = 4
 private const val DEFAULT_ANCHOR_NAME = "未获取主播名称"
 private const val ANCHOR_NAME_LOADING = "主播名称获取中"

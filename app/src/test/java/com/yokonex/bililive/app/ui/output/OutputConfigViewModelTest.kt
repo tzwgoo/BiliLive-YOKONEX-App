@@ -21,5 +21,17 @@ class OutputConfigViewModelTest {
         val viewModel = OutputConfigViewModel()
 
         assertFalse(viewModel.uiState.value.bluetoothDevices.isEmpty())
+        assertEquals("ws://103.236.55.92:43001/", viewModel.uiState.value.socketEndpoint)
+    }
+
+    @Test
+    fun bluetoothPreviewState_defaultsToDisconnected() {
+        val viewModel = OutputConfigViewModel()
+
+        assertEquals("未连接", viewModel.uiState.value.bluetoothStatus)
+        assertEquals(null, viewModel.uiState.value.bluetoothBatteryLevel)
+        assertEquals("", viewModel.uiState.value.connectedBluetoothDeviceName)
+        assertEquals(0, viewModel.uiState.value.channelAStrength)
+        assertEquals(0, viewModel.uiState.value.channelBStrength)
     }
 }

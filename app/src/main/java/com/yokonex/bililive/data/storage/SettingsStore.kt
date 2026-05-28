@@ -36,7 +36,7 @@ class SettingsStore(
     val websocketEndpoint: Flow<String> = dataStore.data
         .catch { emit(emptyPreferences()) }
         .map { preferences ->
-            preferences[WEBSOCKET_ENDPOINT] ?: ""
+            preferences[WEBSOCKET_ENDPOINT] ?: DEFAULT_WEBSOCKET_ENDPOINT
         }
 
     val websocketUid: Flow<String> = dataStore.data
@@ -112,7 +112,7 @@ class SettingsStore(
                 preferences[OUTPUT_MODE] = OutputMode.BLUETOOTH.name
             }
             if (!preferences.contains(WEBSOCKET_ENDPOINT)) {
-                preferences[WEBSOCKET_ENDPOINT] = ""
+                preferences[WEBSOCKET_ENDPOINT] = DEFAULT_WEBSOCKET_ENDPOINT
             }
             if (!preferences.contains(WEBSOCKET_UID)) {
                 preferences[WEBSOCKET_UID] = ""
@@ -127,6 +127,7 @@ class SettingsStore(
     }
 
     private companion object {
+        const val DEFAULT_WEBSOCKET_ENDPOINT = "ws://103.236.55.92:43001/"
         val ROOM_ID = stringPreferencesKey("room_id")
         val OUTPUT_MODE = stringPreferencesKey("output_mode")
         val RECENT_DEVICE_ID = stringPreferencesKey("recent_device_id")

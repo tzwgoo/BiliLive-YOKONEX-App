@@ -3,15 +3,21 @@ package com.yokonex.bililive.app.ui.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yokonex.bililive.AppServices
-import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.app.ui.components.UiEventLog
+import com.yokonex.bililive.data.bluetooth.BluetoothRepository
+import com.yokonex.bililive.data.live.RoomProfileRepository
 import com.yokonex.bililive.data.storage.JsonEventLogStore
+import com.yokonex.bililive.data.storage.entity.EventLogEntity
+import com.yokonex.bililive.data.storage.SettingsStore
+import com.yokonex.bililive.data.websocket.CommandSocketClient
+import com.yokonex.bililive.data.websocket.CommandSocketState
 import com.yokonex.bililive.domain.model.OutputMode
-import com.yokonex.bililive.domain.usecase.StartMonitoringUseCase
-import com.yokonex.bililive.domain.usecase.StopMonitoringUseCase
-import com.yokonex.bililive.service.LiveMonitorService
 import com.yokonex.bililive.service.ServiceCoordinator
 import com.yokonex.bililive.service.ServiceStatus
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,12 +29,13 @@ class DashboardViewModel(
     private val serviceCoordinator: ServiceCoordinator = AppServices.container?.serviceCoordinator ?: ServiceCoordinator(),
     private val settingsStore: SettingsStore? = AppServices.container?.settingsStore,
     private val eventLogStore: JsonEventLogStore? = AppServices.container?.eventLogStore,
+    private val bluetoothRepository: BluetoothRepository? = AppServices.container?.bluetoothRepository,
+    private val commandSocketClient: CommandSocketClient? = AppServices.container?.commandSocketClient,
+    private val roomProfileRepository: RoomProfileRepository? = AppServices.container?.roomProfileRepository,
 ) : ViewModel() {
-    private val startMonitoringUseCase = StartMonitoringUseCase(serviceCoordinator)
-    private val stopMonitoringUseCase = StopMonitoringUseCase(serviceCoordinator)
-
     private val _uiState = MutableStateFlow(DashboardUiState())
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
+    private var roomTitleJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -42,8 +49,16 @@ class DashboardViewModel(
             viewModelScope.launch {
                 store.roomId.collect { roomId ->
                     _uiState.update { currentState ->
-                        currentState.copy(roomId = roomId)
+                        currentState.copy(
+                            roomId = roomId,
+                            anchorName = if (roomId.isBlank()) {
+                                DEFAULT_ANCHOR_NAME
+                            } else {
+                                ANCHOR_NAME_LOADING
+                            },
+                        )
                     }
+                    refreshAnchorName(roomId)
                 }
             }
             viewModelScope.launch {
@@ -54,21 +69,39 @@ class DashboardViewModel(
                 }
             }
         }
+        bluetoothRepository?.let { repository ->
+            viewModelScope.launch {
+                repository.runtimeStatus.collect { status ->
+                    _uiState.update { currentState ->
+                        currentState.copy(
+                            bluetoothConnected = status.connected,
+                            bluetoothDeviceName = if (status.connected) status.deviceName else "",
+                            bluetoothBatteryLevel = if (status.connected) status.batteryLevel else null,
+                            channelAStrength = if (status.connected) status.channelAStrength else 0,
+                            channelBStrength = if (status.connected) status.channelBStrength else 0,
+                        )
+                    }
+                }
+            }
+        }
+        commandSocketClient?.let { client ->
+            viewModelScope.launch {
+                client.connectionState.collect { state ->
+                    _uiState.update { currentState ->
+                        currentState.copy(imStatus = state.toDisplayLabel())
+                    }
+                }
+            }
+        }
         eventLogStore?.let { store ->
             viewModelScope.launch {
                 store.logs.collect { logs ->
                     _uiState.update { currentState ->
                         currentState.copy(
-                            recentEvents = logs.take(3).map { log ->
-                                UiEventLog(
-                                    id = log.id,
-                                    title = log.eventType,
-                                    detail = log.summary,
-                                    timestampLabel = log.createdAt.toString(),
-                                    statusLabel = if (log.outputSuccess) "成功" else "失败",
-                                    success = log.outputSuccess,
-                                )
-                            },
+                            recentEvents = logs
+                                .filter { log -> log.eventType in LIVE_EVENT_TYPES }
+                                .take(10)
+                                .map(::toDashboardEventLog),
                         )
                     }
                 }
@@ -76,51 +109,42 @@ class DashboardViewModel(
         }
     }
 
-    fun toggleMonitoring() {
-        viewModelScope.launch {
-            val appContext = AppServices.applicationContext
-            if (appContext != null) {
-                if (_uiState.value.isMonitoring) {
-                    LiveMonitorService.stopService(appContext)
-                } else {
-                    LiveMonitorService.startService(
-                        context = appContext,
-                        roomId = _uiState.value.roomId,
-                        outputMode = _uiState.value.outputMode,
-                    )
-                }
-            } else {
-                if (_uiState.value.isMonitoring) {
-                    stopMonitoringUseCase()
-                } else {
-                    startMonitoringUseCase()
-                }
-            }
-        }
-    }
-
-    fun selectOutputMode(mode: OutputMode) {
-        if (settingsStore == null) {
+    private fun refreshAnchorName(roomId: String) {
+        roomTitleJob?.cancel()
+        if (roomId.isBlank()) {
             _uiState.update { currentState ->
-                currentState.copy(outputMode = mode)
+                currentState.copy(anchorName = DEFAULT_ANCHOR_NAME)
             }
             return
         }
-        viewModelScope.launch {
-            settingsStore.updateOutputMode(mode)
+        val repository = roomProfileRepository ?: run {
+            _uiState.update { currentState ->
+                currentState.copy(anchorName = DEFAULT_ANCHOR_NAME)
+            }
+            return
+        }
+        roomTitleJob = viewModelScope.launch {
+            val resolvedName = runCatching { repository.getAnchorName(roomId) }.getOrNull()
+            _uiState.update { currentState ->
+                currentState.copy(anchorName = normalizeAnchorName(resolvedName))
+            }
         }
     }
 }
 
 data class DashboardUiState(
     val roomId: String = "22445566",
-    val serviceStatus: ServiceStatus = ServiceStatus.Idle,
+    val anchorName: String = DEFAULT_ANCHOR_NAME,
+    val serviceStatus: ServiceStatus = ServiceStatus.Running,
     val outputMode: OutputMode = OutputMode.BLUETOOTH,
+    val bluetoothConnected: Boolean = false,
+    val bluetoothDeviceName: String = "",
+    val bluetoothBatteryLevel: Int? = null,
+    val channelAStrength: Int = 0,
+    val channelBStrength: Int = 0,
+    val imStatus: String = "未连接",
     val recentEvents: List<UiEventLog> = sampleRecentEvents(),
 ) {
-    val isMonitoring: Boolean
-        get() = serviceStatus !is ServiceStatus.Idle && serviceStatus !is ServiceStatus.Stopping
-
     val serviceStatusLabel: String
         get() = when (serviceStatus) {
             ServiceStatus.Idle -> "待机"
@@ -131,33 +155,97 @@ data class DashboardUiState(
             is ServiceStatus.Error -> "异常"
         }
 
-    val startButtonLabel: String
-        get() = if (isMonitoring) "停止监听" else "启动监听"
+    val outputModeLabel: String
+        get() = if (outputMode == OutputMode.BLUETOOTH) "蓝牙 EMS" else "IM 指令"
 }
 
 private fun sampleRecentEvents(): List<UiEventLog> = listOf(
     UiEventLog(
         id = "evt_101",
-        title = "礼物命中规则",
-        detail = "用户 夏日汽水 送出 小心心 x10，已触发 dual_tap。",
+        title = "实时礼物",
+        detail = "用户 夏日汽水 送出 小心心 x10。",
         timestampLabel = "刚刚",
-        statusLabel = "蓝牙已执行",
+        statusLabel = "已触发",
         success = true,
     ),
     UiEventLog(
         id = "evt_102",
-        title = "点赞事件进入队列",
-        detail = "用户 阿航 连点 30 次，等待下一轮波形调度。",
+        title = "实时点赞",
+        detail = "用户 阿航 点赞 30。",
         timestampLabel = "1 分钟前",
-        statusLabel = "等待输出",
-        success = true,
+        statusLabel = "未命中",
+        success = false,
     ),
     UiEventLog(
         id = "evt_103",
-        title = "弹幕规则未命中",
-        detail = "弹幕“晚上好”未匹配关键词，已记录为跳过。",
+        title = "实时弹幕",
+        detail = "用户 晚风 发送弹幕 晚上好。",
         timestampLabel = "3 分钟前",
-        statusLabel = "未触发",
+        statusLabel = "冷却跳过",
         success = false,
     ),
+    UiEventLog(
+        id = "evt_104",
+        title = "实时点赞",
+        detail = "用户 阿宁 点赞 120。",
+        timestampLabel = "4 分钟前",
+        statusLabel = "已触发",
+        success = true,
+    ),
 )
+
+internal fun toDashboardEventLog(entity: EventLogEntity): UiEventLog =
+    UiEventLog(
+        id = entity.id,
+        title = dashboardEventTitle(entity.eventType),
+        detail = entity.summary,
+        timestampLabel = formatDashboardTimestamp(entity.createdAt),
+        statusLabel = dashboardTriggerStatus(entity),
+        success = entity.outputSuccess,
+    )
+
+internal fun normalizeAnchorName(name: String?): String =
+    name?.trim()?.takeIf(String::isNotEmpty) ?: DEFAULT_ANCHOR_NAME
+
+internal fun normalizeEventTimestampMillis(timestamp: Long): Long =
+    if (timestamp in 1L until 1_000_000_000_000L) {
+        timestamp * 1_000L
+    } else {
+        timestamp
+    }
+
+private fun dashboardEventTitle(eventType: String): String =
+    when (eventType) {
+        "GIFT" -> "实时礼物"
+        "LIKE" -> "实时点赞"
+        "DANMAKU" -> "实时弹幕"
+        else -> "系统事件"
+    }
+
+private fun dashboardTriggerStatus(entity: EventLogEntity): String =
+    when {
+        entity.outputSuccess -> "已触发"
+        entity.outputMessage == "cooldown_skipped" -> "冷却跳过"
+        entity.outputMessage == "no_matching_rule" -> "未命中"
+        entity.outputMessage == "no_action_binding" -> "未绑定"
+        else -> "输出失败"
+    }
+
+private fun formatDashboardTimestamp(timestamp: Long): String {
+    if (timestamp <= 0L) {
+        return "未知时间"
+    }
+    return SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA).format(Date(normalizeEventTimestampMillis(timestamp)))
+}
+
+private fun CommandSocketState.toDisplayLabel(): String =
+    when (this) {
+        CommandSocketState.DISCONNECTED -> "未连接"
+        CommandSocketState.CONNECTING -> "连接中"
+        CommandSocketState.CONNECTED -> "已连接"
+        CommandSocketState.ERROR -> "连接异常"
+    }
+
+private val LIVE_EVENT_TYPES = setOf("GIFT", "LIKE", "DANMAKU")
+private const val DEFAULT_ANCHOR_NAME = "未获取主播名称"
+private const val ANCHOR_NAME_LOADING = "主播名称获取中"

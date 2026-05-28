@@ -42,6 +42,23 @@ class JsonRuleStore(
         syncRules()
     }
 
+    suspend fun updateRule(rule: TriggerRule) {
+        val nextEntities = entityState.value.map { entity ->
+            if (entity.id == rule.id) {
+                RuleMapper.toEntity(rule)
+            } else {
+                entity
+            }
+        }
+        entityState.value = if (nextEntities.any { entity -> entity.id == rule.id }) {
+            nextEntities
+        } else {
+            nextEntities + RuleMapper.toEntity(rule)
+        }.sortedBy(RuleEntity::name)
+        persist()
+        syncRules()
+    }
+
     private fun loadInitial(defaultRules: List<RuleEntity>): List<RuleEntity> {
         if (!file.exists()) {
             persist(defaultRules)
@@ -57,7 +74,8 @@ class JsonRuleStore(
         }.getOrElse {
             persist(defaultRules)
             defaultRules
-        }.sortedBy(RuleEntity::name)
+        }.let(::normalizeLegacyDefaults)
+            .sortedBy(RuleEntity::name)
     }
 
     private fun persist(source: List<RuleEntity> = entityState.value) {
@@ -95,5 +113,38 @@ class JsonRuleStore(
             conditionsJson = obj["conditionsJson"]?.jsonPrimitive?.content.orEmpty(),
             actionBindingsJson = obj["actionBindingsJson"]?.jsonPrimitive?.content.orEmpty(),
         )
+    }
+
+    private fun normalizeLegacyDefaults(entities: List<RuleEntity>): List<RuleEntity> {
+        val normalized = entities.map { entity ->
+            val rule = RuleMapper.fromEntity(entity)
+            when {
+                rule.id == "like-default" && rule.conditions.likeMultiple == null -> {
+                    RuleMapper.toEntity(
+                        rule.copy(
+                            conditions = rule.conditions.copy(likeMultiple = 100),
+                        ),
+                    )
+                }
+
+                rule.id == "danmaku-default" &&
+                    rule.enabled &&
+                    rule.cooldownSeconds == 3 &&
+                    rule.conditions.keywords.isEmpty() -> {
+                    RuleMapper.toEntity(
+                        rule.copy(
+                            enabled = false,
+                            cooldownSeconds = 0,
+                        ),
+                    )
+                }
+
+                else -> entity
+            }
+        }
+        if (normalized != entities) {
+            persist(normalized)
+        }
+        return normalized
     }
 }

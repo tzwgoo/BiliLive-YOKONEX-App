@@ -29,10 +29,10 @@ import com.yokonex.bililive.app.ui.rules.RulesViewModel
 fun AppNavGraph() {
     val navController = rememberNavController()
     val navigationItems = listOf(
-        NavigationItem("dashboard", "控制台", "控"),
-        NavigationItem("live", "连接", "连"),
-        NavigationItem("output", "输出", "出"),
-        NavigationItem("rules", "规则", "规"),
+        NavigationItem("dashboard", "状态", "状"),
+        NavigationItem("live", "直播间配置", "播"),
+        NavigationItem("output", "设备连接", "设"),
+        NavigationItem("rules", "规则配置", "规"),
         NavigationItem("logs", "日志", "记"),
     )
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
@@ -72,8 +72,6 @@ fun AppNavGraph() {
                     val uiState by dashboardViewModel.uiState.collectAsState()
                     DashboardScreen(
                         uiState = uiState,
-                        onToggleMonitoring = dashboardViewModel::toggleMonitoring,
-                        onOutputModeChange = dashboardViewModel::selectOutputMode,
                         contentPadding = innerPadding,
                     )
                 }
@@ -85,6 +83,11 @@ fun AppNavGraph() {
                         onRoomIdChange = liveConfigViewModel::updateRoomId,
                         onAutoReconnectChange = liveConfigViewModel::toggleAutoReconnect,
                         onReconnectIntervalChange = liveConfigViewModel::updateReconnectInterval,
+                        onLikeMultipleChange = liveConfigViewModel::updateLikeMultiple,
+                        onDanmakuEnabledChange = liveConfigViewModel::updateDanmakuEnabled,
+                        onDanmakuKeywordsChange = liveConfigViewModel::updateDanmakuKeywords,
+                        onDanmakuCooldownSecondsChange = liveConfigViewModel::updateDanmakuCooldownSeconds,
+                        onToggleMonitoring = liveConfigViewModel::toggleMonitoring,
                         contentPadding = innerPadding,
                     )
                 }
@@ -97,6 +100,11 @@ fun AppNavGraph() {
                         onSocketEndpointChange = outputConfigViewModel::updateSocketEndpoint,
                         onSocketUidChange = outputConfigViewModel::updateSocketUid,
                         onSocketTokenChange = outputConfigViewModel::updateSocketToken,
+                        onConnectCommandChannel = outputConfigViewModel::connectCommandChannel,
+                        onDisconnectCommandChannel = outputConfigViewModel::disconnectCommandChannel,
+                        onScanBluetoothDevices = outputConfigViewModel::scanBluetoothDevices,
+                        onConnectBluetoothDevice = outputConfigViewModel::connectBluetoothDevice,
+                        onDisconnectBluetoothDevice = outputConfigViewModel::disconnectBluetoothDevice,
                         contentPadding = innerPadding,
                     )
                 }
@@ -106,6 +114,8 @@ fun AppNavGraph() {
                     RulesScreen(
                         uiState = uiState,
                         onRuleToggle = rulesViewModel::toggleRule,
+                        onGiftPriceRangeChange = rulesViewModel::updateGiftPriceRange,
+                        onWaveformChange = rulesViewModel::updateBluetoothWaveform,
                         contentPadding = innerPadding,
                     )
                 }

@@ -37,6 +37,7 @@ class SettingsStoreTest {
         assertTrue(waveforms.isNotEmpty())
         assertEquals("", settingsStore.roomId.first())
         assertEquals(OutputMode.BLUETOOTH, settingsStore.outputMode.first())
+        assertEquals("ws://103.236.55.92:43001/", settingsStore.websocketEndpoint.first())
     }
 
     private class FakeWaveformDao : WaveformDao {

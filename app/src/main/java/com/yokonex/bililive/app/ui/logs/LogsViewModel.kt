@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yokonex.bililive.AppServices
 import com.yokonex.bililive.app.ui.components.UiEventLog
+import com.yokonex.bililive.app.ui.dashboard.normalizeEventTimestampMillis
 import com.yokonex.bililive.data.storage.JsonEventLogStore
 import com.yokonex.bililive.data.storage.entity.EventLogEntity
 import java.text.SimpleDateFormat
@@ -91,5 +92,5 @@ private fun formatTimestamp(timestamp: Long): String {
     if (timestamp <= 0L) {
         return "未知时间"
     }
-    return SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA).format(Date(timestamp))
+    return SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA).format(Date(normalizeEventTimestampMillis(timestamp)))
 }

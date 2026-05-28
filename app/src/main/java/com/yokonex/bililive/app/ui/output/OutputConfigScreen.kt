@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +28,11 @@ fun OutputConfigScreen(
     onSocketEndpointChange: (String) -> Unit,
     onSocketUidChange: (String) -> Unit,
     onSocketTokenChange: (String) -> Unit,
+    onConnectCommandChannel: () -> Unit,
+    onDisconnectCommandChannel: () -> Unit,
+    onScanBluetoothDevices: () -> Unit,
+    onConnectBluetoothDevice: (String) -> Unit,
+    onDisconnectBluetoothDevice: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     LazyColumn(
@@ -40,11 +47,11 @@ fun OutputConfigScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "输出配置",
+                    text = "设备连接",
                     style = MaterialTheme.typography.headlineMedium,
                 )
                 Text(
-                    text = "在蓝牙和 WebSocket 两条执行通道之间切换，并维护各自的连接参数。",
+                    text = "在蓝牙和 IM 指令两条执行通道之间切换，并维护各自的连接参数。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -68,17 +75,51 @@ fun OutputConfigScreen(
                 FilterChip(
                     selected = uiState.outputMode == OutputMode.WEBSOCKET,
                     onClick = { onOutputModeChange(OutputMode.WEBSOCKET) },
-                    label = { Text("WebSocket") },
+                    label = { Text("IM 指令") },
                 )
             }
         }
         if (uiState.outputMode == OutputMode.BLUETOOTH) {
+            val batteryLabel = uiState.bluetoothBatteryLevel?.let { "$it%" } ?: "--"
             item {
                 StatusCard(
-                    title = "已配对设备",
-                    value = "${uiState.bluetoothDevices.count { it.connected }} 台在线",
-                    supportingText = "优先展示已识别的 ems_v1 / ems_v2 设备。",
+                    title = "蓝牙状态",
+                    value = uiState.bluetoothStatus,
+                    supportingText = if (uiState.canDisconnectBluetooth) {
+                        "设备 ${uiState.connectedBluetoothDeviceName} · 电量 $batteryLabel · A ${uiState.channelAStrength} · B ${uiState.channelBStrength}"
+                    } else {
+                        "未连接"
+                    },
                 )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(
+                        onClick = onScanBluetoothDevices,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("扫描设备")
+                    }
+                    OutlinedButton(
+                        onClick = onDisconnectBluetoothDevice,
+                        enabled = uiState.canDisconnectBluetooth,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("断开设备")
+                    }
+                }
+            }
+            if (!uiState.bluetoothErrorMessage.isNullOrBlank()) {
+                item {
+                    Text(
+                        text = uiState.bluetoothErrorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
             items(uiState.bluetoothDevices, key = { it.id }) { device ->
                 StatusCard(
@@ -86,13 +127,40 @@ fun OutputConfigScreen(
                     value = if (device.connected) "已连接" else "待连接",
                     supportingText = "协议 ${device.protocol}",
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (device.connected) {
+                        OutlinedButton(
+                            onClick = onDisconnectBluetoothDevice,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("断开当前设备")
+                        }
+                    } else {
+                        Button(
+                            onClick = { onConnectBluetoothDevice(device.id) },
+                            enabled = uiState.canConnectBluetooth(device.id),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                if (uiState.connectingBluetoothDeviceId == device.id) {
+                                    "连接中..."
+                                } else {
+                                    "连接设备"
+                                },
+                            )
+                        }
+                    }
+                }
             }
         } else {
             item {
                 StatusCard(
-                    title = "Socket 状态",
+                    title = "IM 状态",
                     value = uiState.websocketStatus,
-                    supportingText = "用于向外部执行器发送指令槽位。",
+                    supportingText = "用于向下游执行器发送固定槽位指令。",
                 )
             }
             item {
@@ -121,6 +189,27 @@ fun OutputConfigScreen(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(
+                        onClick = onConnectCommandChannel,
+                        enabled = uiState.canConnectSocket,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("登录指令通道")
+                    }
+                    OutlinedButton(
+                        onClick = onDisconnectCommandChannel,
+                        enabled = uiState.canDisconnectSocket,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("退出指令通道")
+                    }
+                }
             }
         }
     }

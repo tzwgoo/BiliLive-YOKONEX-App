@@ -8,7 +8,11 @@ import com.yokonex.bililive.data.bluetooth.DefaultBluetoothRepository
 import com.yokonex.bililive.data.bluetooth.EmsProtocolEncoder
 import com.yokonex.bililive.data.bluetooth.EmsWaveformRuntime
 import com.yokonex.bililive.data.bluetooth.PlatformAndroidBleManager
+import com.yokonex.bililive.data.live.DefaultBilibiliLiveRoomClient
 import com.yokonex.bililive.data.live.RealThirdPartyLiveGateway
+import com.yokonex.bililive.data.live.BilibiliRoomProfileRepository
+import com.yokonex.bililive.data.live.LiveRoomClient
+import com.yokonex.bililive.data.live.RoomProfileRepository
 import com.yokonex.bililive.data.mapper.RuleMapper
 import com.yokonex.bililive.data.mapper.WaveformMapper
 import com.yokonex.bililive.data.storage.DefaultWaveforms
@@ -50,7 +54,7 @@ class AppContainer(
     )
     val settingsStore = SettingsStore(dataStore)
 
-    private val waveformDao: WaveformDao = JsonWaveformDao(
+    val waveformDao: WaveformDao = JsonWaveformDao(
         file = File(context.filesDir, "storage/waveforms.json"),
         defaultWaveforms = DefaultWaveforms.all.map(WaveformMapper::toEntity),
     )
@@ -61,6 +65,8 @@ class AppContainer(
     val eventLogStore = JsonEventLogStore(
         file = File(context.filesDir, "storage/event_logs.json"),
     )
+    private val liveRoomClient: LiveRoomClient = DefaultBilibiliLiveRoomClient()
+    val roomProfileRepository: RoomProfileRepository = BilibiliRoomProfileRepository(liveRoomClient)
     private val bleManager: AndroidBleManager = PlatformAndroidBleManager(context.applicationContext)
     private val protocolEncoder = EmsProtocolEncoder()
     val commandSocketClient: CommandSocketClient = OkHttpCommandSocketClient()
@@ -81,7 +87,7 @@ class AppContainer(
 
     val serviceCoordinator = ServiceCoordinator(
         configProvider = SettingsMonitoringConfigProvider(settingsStore),
-        liveGateway = RealThirdPartyLiveGateway(),
+        liveGateway = RealThirdPartyLiveGateway(liveRoomClient = liveRoomClient),
         commandSocketClient = commandSocketClient,
         eventProcessor = processLiveEventUseCase::invoke,
     )
@@ -167,6 +173,9 @@ private fun buildDefaultRules(): List<TriggerRule> {
             id = "like-default",
             name = "点赞默认规则",
             eventType = LiveEventType.LIKE,
+            conditions = RuleConditions(
+                likeMultiple = 100,
+            ),
             actionBindings = ActionBindings(
                 bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-01"),
                 websocketAction = OutputAction.WebSocketCommandAction("1"),
@@ -175,8 +184,9 @@ private fun buildDefaultRules(): List<TriggerRule> {
         TriggerRule(
             id = "danmaku-default",
             name = "弹幕默认规则",
+            enabled = false,
             eventType = LiveEventType.DANMAKU,
-            cooldownSeconds = 3,
+            cooldownSeconds = 0,
             conditions = RuleConditions(
                 keywords = emptyList(),
                 matchMode = KeywordMatchMode.ANY,

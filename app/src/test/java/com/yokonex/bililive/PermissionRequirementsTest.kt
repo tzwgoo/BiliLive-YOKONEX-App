@@ -2,6 +2,7 @@ package com.yokonex.bililive
 
 import android.Manifest
 import android.os.Build
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -77,5 +78,16 @@ class PermissionRequirementsTest {
         )
 
         assertFalse(PermissionRequirements.shouldRequestPermissions(grantedStates))
+    }
+
+    @Test
+    fun androidManifest_declaresForegroundServiceTypePermissionsForLiveMonitorService() {
+        val manifest = sequenceOf(
+            File("app/src/main/AndroidManifest.xml"),
+            File("src/main/AndroidManifest.xml"),
+        ).firstOrNull(File::exists)?.readText(Charsets.UTF_8).orEmpty()
+
+        assertTrue(manifest.contains("android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"))
+        assertTrue(manifest.contains("android.permission.FOREGROUND_SERVICE_DATA_SYNC"))
     }
 }

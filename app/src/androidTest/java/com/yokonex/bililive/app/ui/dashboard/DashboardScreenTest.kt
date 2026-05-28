@@ -18,14 +18,14 @@ class DashboardScreenTest {
     @Test
     fun dashboardRoute_isShownOnLaunch() {
         composeTestRule.onNodeWithText("直播控制台").assertExists()
-        composeTestRule.onNodeWithText("启动监听").assertExists()
+        composeTestRule.onNodeWithText("监听状态").assertExists()
         composeTestRule.onNodeWithText("输出模式").assertExists()
     }
 
     @Test
     fun bottomNavigation_canOpenAllPrimaryScreens() {
         composeTestRule.onNodeWithText("连接").performClick()
-        composeTestRule.onNodeWithText("直播连接").assertExists()
+        composeTestRule.onNodeWithText("直播间配置").assertExists()
 
         composeTestRule.onNodeWithText("输出").performClick()
         composeTestRule.onNodeWithText("输出配置").assertExists()

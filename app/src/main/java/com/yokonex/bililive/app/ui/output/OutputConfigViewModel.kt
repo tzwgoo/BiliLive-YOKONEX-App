@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yokonex.bililive.AppServices
 import com.yokonex.bililive.data.bluetooth.BluetoothRepository
+import com.yokonex.bililive.data.bluetooth.model.BluetoothConnectionState
 import com.yokonex.bililive.data.websocket.CommandSocketClient
 import com.yokonex.bililive.data.websocket.CommandSocketState
 import com.yokonex.bililive.data.storage.SettingsStore
@@ -72,6 +73,37 @@ class OutputConfigViewModel(
                 }
             }
             viewModelScope.launch {
+                repository.connectionState.collect { state ->
+                    _uiState.update { currentState ->
+                        currentState.copy(
+                            bluetoothStatus = state.toDisplayLabel(),
+                            connectingBluetoothDeviceId = if (state == BluetoothConnectionState.CONNECTING) {
+                                currentState.connectingBluetoothDeviceId
+                            } else {
+                                null
+                            },
+                            bluetoothErrorMessage = if (state == BluetoothConnectionState.ERROR) {
+                                currentState.bluetoothErrorMessage
+                            } else {
+                                null
+                            },
+                        )
+                    }
+                }
+            }
+            viewModelScope.launch {
+                repository.runtimeStatus.collect { status ->
+                    _uiState.update { currentState ->
+                        currentState.copy(
+                            connectedBluetoothDeviceName = if (status.connected) status.deviceName else "",
+                            bluetoothBatteryLevel = if (status.connected) status.batteryLevel else null,
+                            channelAStrength = if (status.connected) status.channelAStrength else 0,
+                            channelBStrength = if (status.connected) status.channelBStrength else 0,
+                        )
+                    }
+                }
+            }
+            viewModelScope.launch {
                 runCatching { repository.scan() }
             }
         }
@@ -133,16 +165,141 @@ class OutputConfigViewModel(
             settingsStore.updateWebSocketToken(token)
         }
     }
+
+    fun connectCommandChannel() {
+        val client = commandSocketClient
+        if (client == null) {
+            _uiState.update { currentState ->
+                currentState.copy(websocketStatus = "已连接")
+            }
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                client.connect(
+                    wsUrl = uiState.value.socketEndpoint,
+                    uid = uiState.value.socketUid,
+                    token = uiState.value.socketToken,
+                )
+            }
+        }
+    }
+
+    fun disconnectCommandChannel() {
+        val client = commandSocketClient
+        if (client == null) {
+            _uiState.update { currentState ->
+                currentState.copy(websocketStatus = "未连接")
+            }
+            return
+        }
+        viewModelScope.launch {
+            runCatching { client.disconnect() }
+        }
+    }
+
+    fun scanBluetoothDevices() {
+        val repository = bluetoothRepository ?: return
+        viewModelScope.launch {
+            runCatching { repository.scan() }
+        }
+    }
+
+    fun connectBluetoothDevice(deviceId: String) {
+        val repository = bluetoothRepository
+        if (repository == null) {
+            _uiState.update { currentState ->
+                currentState.copy(
+                    bluetoothStatus = "已连接",
+                    connectingBluetoothDeviceId = null,
+                    bluetoothErrorMessage = null,
+                    bluetoothDevices = currentState.bluetoothDevices.map { device ->
+                        device.copy(connected = device.id == deviceId)
+                    },
+                )
+            }
+            return
+        }
+        val currentState = uiState.value
+        if (!currentState.canConnectBluetooth(deviceId)) {
+            return
+        }
+        _uiState.update { state ->
+            state.copy(
+                connectingBluetoothDeviceId = deviceId,
+                bluetoothErrorMessage = null,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { repository.connect(deviceId) }
+                .onFailure { error ->
+                    _uiState.update { state ->
+                        state.copy(
+                            connectingBluetoothDeviceId = null,
+                            bluetoothErrorMessage = error.message ?: "蓝牙连接失败",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun disconnectBluetoothDevice() {
+        val repository = bluetoothRepository
+        if (repository == null) {
+            _uiState.update { currentState ->
+                currentState.copy(
+                    bluetoothStatus = "未连接",
+                    bluetoothDevices = currentState.bluetoothDevices.map { device ->
+                        device.copy(connected = false)
+                    },
+                    connectingBluetoothDeviceId = null,
+                    bluetoothErrorMessage = null,
+                    bluetoothBatteryLevel = null,
+                    channelAStrength = 0,
+                    channelBStrength = 0,
+                )
+            }
+            return
+        }
+        viewModelScope.launch {
+            runCatching { repository.disconnect() }
+        }
+    }
 }
 
 data class OutputConfigUiState(
     val outputMode: OutputMode = OutputMode.BLUETOOTH,
     val bluetoothDevices: List<UiBluetoothDevice> = sampleBluetoothDevices(),
-    val socketEndpoint: String = "ws://192.168.1.21:9001/live",
+    val socketEndpoint: String = "ws://103.236.55.92:43001/",
     val socketUid: String = "",
     val socketToken: String = "demo-token",
     val websocketStatus: String = "未连接",
-)
+    val bluetoothStatus: String = "未连接",
+    val connectingBluetoothDeviceId: String? = null,
+    val bluetoothErrorMessage: String? = null,
+    val connectedBluetoothDeviceName: String = "",
+    val bluetoothBatteryLevel: Int? = null,
+    val channelAStrength: Int = 0,
+    val channelBStrength: Int = 0,
+) {
+    val canConnectSocket: Boolean
+        get() = websocketStatus != "连接中" &&
+            websocketStatus != "已连接" &&
+            socketEndpoint.isNotBlank() &&
+            socketUid.isNotBlank() &&
+            socketToken.isNotBlank()
+
+    val canDisconnectSocket: Boolean
+        get() = websocketStatus == "连接中" || websocketStatus == "已连接"
+
+    val canDisconnectBluetooth: Boolean
+        get() = bluetoothDevices.any(UiBluetoothDevice::connected)
+
+    fun canConnectBluetooth(deviceId: String): Boolean =
+        bluetoothStatus != "连接中" &&
+            connectingBluetoothDeviceId == null &&
+            bluetoothDevices.none { device -> device.connected && device.id == deviceId }
+}
 
 data class UiBluetoothDevice(
     val id: String,
@@ -156,7 +313,7 @@ private fun sampleBluetoothDevices(): List<UiBluetoothDevice> = listOf(
         id = "ble_1",
         name = "YYC-DJ-V2-Alpha",
         protocol = "ems_v2",
-        connected = true,
+        connected = false,
     ),
     UiBluetoothDevice(
         id = "ble_2",
@@ -172,4 +329,13 @@ private fun CommandSocketState.toDisplayLabel(): String =
         CommandSocketState.CONNECTING -> "连接中"
         CommandSocketState.CONNECTED -> "已连接"
         CommandSocketState.ERROR -> "连接异常"
+    }
+
+private fun BluetoothConnectionState.toDisplayLabel(): String =
+    when (this) {
+        BluetoothConnectionState.DISCONNECTED -> "未连接"
+        BluetoothConnectionState.SCANNING -> "扫描中"
+        BluetoothConnectionState.CONNECTING -> "连接中"
+        BluetoothConnectionState.CONNECTED -> "已连接"
+        BluetoothConnectionState.ERROR -> "连接异常"
     }

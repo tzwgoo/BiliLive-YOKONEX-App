@@ -24,6 +24,8 @@ import com.yokonex.bililive.app.ui.output.OutputConfigScreen
 import com.yokonex.bililive.app.ui.output.OutputConfigViewModel
 import com.yokonex.bililive.app.ui.rules.RulesScreen
 import com.yokonex.bililive.app.ui.rules.RulesViewModel
+import com.yokonex.bililive.app.ui.waveforms.WaveformsScreen
+import com.yokonex.bililive.app.ui.waveforms.WaveformsViewModel
 
 @Composable
 fun AppNavGraph() {
@@ -33,6 +35,7 @@ fun AppNavGraph() {
         NavigationItem("live", "直播间配置", "播"),
         NavigationItem("output", "设备连接", "设"),
         NavigationItem("rules", "规则配置", "规"),
+        NavigationItem("waveforms", "波形库", "形"),
         NavigationItem("logs", "日志", "记"),
     )
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
@@ -124,6 +127,19 @@ fun AppNavGraph() {
                     val uiState by logsViewModel.uiState.collectAsState()
                     LogsScreen(
                         uiState = uiState,
+                        contentPadding = innerPadding,
+                    )
+                }
+                composable("waveforms") {
+                    val waveformsViewModel: WaveformsViewModel = viewModel()
+                    val uiState by waveformsViewModel.uiState.collectAsState()
+                    WaveformsScreen(
+                        uiState = uiState,
+                        onSelectWaveform = waveformsViewModel::selectWaveform,
+                        onCreateWaveform = waveformsViewModel::createWaveform,
+                        onDuplicateSelectedWaveform = waveformsViewModel::duplicateSelectedWaveform,
+                        onSaveDraft = waveformsViewModel::saveDraft,
+                        onWaveformNameChange = waveformsViewModel::updateWaveformName,
                         contentPadding = innerPadding,
                     )
                 }

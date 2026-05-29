@@ -86,7 +86,7 @@ fun OutputConfigScreen(
                     title = "蓝牙状态",
                     value = uiState.bluetoothStatus,
                     supportingText = if (uiState.canDisconnectBluetooth) {
-                        "设备 ${uiState.connectedBluetoothDeviceName} · 电量 $batteryLabel · A ${uiState.channelAStrength} · B ${uiState.channelBStrength}"
+                        "设备 ${uiState.connectedBluetoothDeviceName} · 电量 $batteryLabel · 模式 ${uiState.bluetoothMixModeLabel} · 主层 ${uiState.bluetoothLeaderLabel.ifBlank { "无" }} · 层数 ${uiState.activeBluetoothLayerCount} · 上限 ${uiState.bluetoothOutputCapLabel} · A ${uiState.channelAStrength} · B ${uiState.channelBStrength}"
                     } else {
                         "未连接"
                     },

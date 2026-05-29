@@ -177,4 +177,58 @@ class EmsProtocolEncoderTest {
             packet,
         )
     }
+
+    @Test
+    fun createStepPacket_forV2_usesIndependentChannelStrengths() {
+        val packet = encoder.createStepPacket(
+            step = WaveformStep(
+                durationMs = 50,
+                channelA = 120,
+                channelAMode = 0x01,
+                channelB = 80,
+                channelBMode = 0x01,
+            ),
+            protocol = "ems_v2",
+            signalMode = WaveformSignalMode.FIXED,
+        )
+
+        assertArrayEquals(
+            byteArrayOf(
+                0x35,
+                0x11,
+                0x01,
+                0x00,
+                0x78,
+                0x01,
+                0x00,
+                0x50,
+                0x01,
+                0x11,
+            ),
+            packet,
+        )
+    }
+
+    @Test
+    fun createStepPacket_forV1_usesAbChannelWithSharedStrength() {
+        val packet = encoder.createStepPacket(
+            step = WaveformStep(
+                durationMs = 50,
+                channelA = 90,
+                channelAMode = 0x11,
+                channelAFrequency = 10,
+                channelAPulseWidth = 5,
+                channelB = 130,
+                channelBMode = 0x11,
+                channelBFrequency = 20,
+                channelBPulseWidth = 8,
+            ),
+            protocol = "ems_v1",
+            signalMode = WaveformSignalMode.FIXED,
+        )
+
+        assertEquals(0x03, packet[2].toInt() and 0xFF)
+        val strength = ((packet[4].toInt() and 0xFF) shl 8) or (packet[5].toInt() and 0xFF)
+        assertEquals(130, strength)
+    }
 }

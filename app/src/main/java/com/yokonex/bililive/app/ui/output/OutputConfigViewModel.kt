@@ -8,6 +8,7 @@ import com.yokonex.bililive.data.bluetooth.model.BluetoothConnectionState
 import com.yokonex.bililive.data.websocket.CommandSocketClient
 import com.yokonex.bililive.data.websocket.CommandSocketState
 import com.yokonex.bililive.data.storage.SettingsStore
+import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.OutputMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -97,8 +98,12 @@ class OutputConfigViewModel(
                         currentState.copy(
                             connectedBluetoothDeviceName = if (status.connected) status.deviceName else "",
                             bluetoothBatteryLevel = if (status.connected) status.batteryLevel else null,
-                            channelAStrength = if (status.connected) status.channelAStrength else 0,
-                            channelBStrength = if (status.connected) status.channelBStrength else 0,
+                            channelAStrength = if (status.connected) status.mixedChannelAStrength else 0,
+                            channelBStrength = if (status.connected) status.mixedChannelBStrength else 0,
+                            bluetoothLeaderLabel = status.leaderEventType.toDisplayLabel(),
+                            bluetoothOutputCapLabel = status.outputCap.toString(),
+                            bluetoothMixModeLabel = if (status.mixModeEnabled) "混波" else "串行",
+                            activeBluetoothLayerCount = status.activeLayerCount,
                         )
                     }
                 }
@@ -281,6 +286,10 @@ data class OutputConfigUiState(
     val bluetoothBatteryLevel: Int? = null,
     val channelAStrength: Int = 0,
     val channelBStrength: Int = 0,
+    val bluetoothLeaderLabel: String = "",
+    val bluetoothOutputCapLabel: String = "130",
+    val bluetoothMixModeLabel: String = "串行",
+    val activeBluetoothLayerCount: Int = 0,
 ) {
     val canConnectSocket: Boolean
         get() = websocketStatus != "连接中" &&
@@ -338,4 +347,13 @@ private fun BluetoothConnectionState.toDisplayLabel(): String =
         BluetoothConnectionState.CONNECTING -> "连接中"
         BluetoothConnectionState.CONNECTED -> "已连接"
         BluetoothConnectionState.ERROR -> "连接异常"
+    }
+
+private fun LiveEventType?.toDisplayLabel(): String =
+    when (this) {
+        LiveEventType.GIFT -> "礼物主层"
+        LiveEventType.DANMAKU -> "弹幕主层"
+        LiveEventType.LIKE -> "点赞主层"
+        LiveEventType.SYSTEM -> "系统主层"
+        null -> ""
     }

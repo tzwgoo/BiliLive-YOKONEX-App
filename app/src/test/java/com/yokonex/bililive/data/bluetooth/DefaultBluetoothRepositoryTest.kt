@@ -8,6 +8,7 @@ import com.yokonex.bililive.data.storage.dao.WaveformDao
 import com.yokonex.bililive.data.storage.entity.WaveformEntity
 import com.yokonex.bililive.data.bluetooth.model.BluetoothConnectionState
 import com.yokonex.bililive.data.bluetooth.model.BluetoothDevice
+import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.WaveformDefinition
 import com.yokonex.bililive.domain.model.WaveformStep
 import java.nio.file.Files
@@ -223,6 +224,65 @@ class DefaultBluetoothRepositoryTest {
 
         assertEquals(1, bleManager.connectCalls)
         assertEquals(BluetoothConnectionState.CONNECTED, repository.connectionState.value)
+    }
+
+    @Test
+    fun enqueueWaveform_usesMixedRuntimePath_whenMixModeEnabled() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("bt-repo", ".preferences_pb").toFile()
+            },
+        )
+        val waveform = WaveformDefinition(
+            id = "custom-wave",
+            name = "自定义波形",
+            builtin = false,
+            steps = listOf(
+                WaveformStep(
+                    durationMs = 120,
+                    channelA = 48,
+                    channelB = 24,
+                ),
+            ),
+        )
+        val bleManager = FakeAndroidBleManager(
+            devices = listOf(
+                BluetoothDevice(
+                    id = "AA:BB:CC:04",
+                    name = "YYC-DJ-V2-003",
+                    protocol = "ems_v2",
+                ),
+            ),
+        )
+        val repository = DefaultBluetoothRepository(
+            bleManager = bleManager,
+            waveformDao = FakeWaveformDao(
+                listOf(WaveformMapper.toEntity(waveform)),
+            ),
+            settingsStore = SettingsStore(dataStore),
+            waveformRuntime = EmsWaveformRuntime(bleManager, EmsProtocolEncoder()),
+            protocolEncoder = EmsProtocolEncoder(),
+        )
+
+        repository.scan()
+        repository.connect("AA:BB:CC:04")
+        repository.setMixModeEnabled(true)
+        repository.enqueueWaveform(
+            waveformId = "custom-wave",
+            eventType = LiveEventType.GIFT,
+            repeatCount = 1,
+        )
+
+        assertTrue(bleManager.writes.size >= 2)
+        assertArrayEquals(
+            EmsProtocolEncoder().createStepPacket(
+                step = waveform.steps.first(),
+                protocol = "ems_v2",
+                signalMode = waveform.signalMode,
+            ),
+            bleManager.writes[1],
+        )
     }
 }
 

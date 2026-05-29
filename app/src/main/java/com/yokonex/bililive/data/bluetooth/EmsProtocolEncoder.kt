@@ -10,11 +10,22 @@ class EmsProtocolEncoder {
         protocol: String,
     ): List<ByteArray> =
         waveform.steps.map { step ->
-            when {
-                protocol == "ems_v1" -> createV1Packet(step)
-                waveform.signalMode == WaveformSignalMode.REALTIME -> createV2RealtimePacket(step)
-                else -> createV2FixedPacket(step)
-            }
+            createStepPacket(
+                step = step,
+                protocol = protocol,
+                signalMode = waveform.signalMode,
+            )
+        }
+
+    fun createStepPacket(
+        step: WaveformStep,
+        protocol: String,
+        signalMode: WaveformSignalMode,
+    ): ByteArray =
+        when {
+            protocol == "ems_v1" -> createV1MixedPacket(step)
+            signalMode == WaveformSignalMode.REALTIME -> createV2RealtimePacket(step)
+            else -> createV2FixedPacket(step)
         }
 
     fun createStopPacket(protocol: String): ByteArray =
@@ -43,10 +54,14 @@ class EmsProtocolEncoder {
     fun createBatteryQueryPacket(): ByteArray =
         createPacket(0x35, 0x71, 0x04)
 
-    private fun createV1Packet(step: WaveformStep): ByteArray {
+    private fun createV1MixedPacket(step: WaveformStep): ByteArray {
         val channel = resolveV1Channel(step)
         val enabled = if (channel == 0x00) 0x00 else 0x01
-        val useChannelB = channel == 0x02 || step.channelB > step.channelA
+        val useChannelB = when (channel) {
+            0x02 -> true
+            0x03 -> step.channelB > step.channelA
+            else -> false
+        }
         val strength = if (useChannelB) step.channelB else step.channelA
         val mode = if (useChannelB) step.channelBMode else step.channelAMode
         val frequency = if (useChannelB) step.channelBFrequency else step.channelAFrequency

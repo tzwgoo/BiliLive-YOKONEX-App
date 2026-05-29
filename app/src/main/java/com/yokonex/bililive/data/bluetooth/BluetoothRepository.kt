@@ -3,6 +3,7 @@ package com.yokonex.bililive.data.bluetooth
 import com.yokonex.bililive.data.bluetooth.model.BluetoothConnectionState
 import com.yokonex.bililive.data.bluetooth.model.BluetoothDevice
 import com.yokonex.bililive.data.bluetooth.model.BluetoothRuntimeStatus
+import com.yokonex.bililive.domain.model.LiveEventType
 import kotlinx.coroutines.flow.StateFlow
 
 interface BluetoothRepository {
@@ -20,4 +21,14 @@ interface BluetoothRepository {
         waveformId: String,
         repeatCount: Int = 1,
     )
+
+    suspend fun enqueueWaveform(
+        waveformId: String,
+        eventType: LiveEventType,
+        repeatCount: Int = 1,
+    )
+
+    suspend fun clearActiveWaveforms()
+
+    fun setMixModeEnabled(enabled: Boolean)
 }

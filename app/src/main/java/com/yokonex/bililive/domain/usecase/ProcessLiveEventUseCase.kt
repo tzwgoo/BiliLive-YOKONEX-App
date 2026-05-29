@@ -81,7 +81,7 @@ class ProcessLiveEventUseCase(
         }
 
         val repeatCount = resolveRepeatCount(event)
-        runCatching { executeAction(action, repeatCount) }
+        runCatching { executeAction(action, event.type, repeatCount) }
             .onSuccess {
                 rememberTrigger(matchedRule, event.timestamp)
                 eventLogRepository.record(
@@ -170,12 +170,14 @@ class ProcessLiveEventUseCase(
 
     private suspend fun executeAction(
         action: OutputAction,
+        eventType: LiveEventType,
         repeatCount: Int,
     ) {
         when (action) {
             is OutputAction.BluetoothWaveformAction -> {
-                bluetoothRepository.playWaveform(
+                bluetoothRepository.enqueueWaveform(
                     waveformId = action.waveformId,
+                    eventType = eventType,
                     repeatCount = repeatCount,
                 )
             }

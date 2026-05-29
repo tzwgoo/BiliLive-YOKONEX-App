@@ -66,7 +66,7 @@ class ProcessLiveEventUseCaseTest {
             ),
         )
 
-        assertEquals(listOf("soft_pulse#1"), bluetoothRepository.playedWaveforms)
+        assertEquals(listOf("GIFT:soft_pulse#1"), bluetoothRepository.enqueuedWaveforms)
         assertEquals(true, logRepository.records.last().outputSuccess)
     }
 
@@ -162,7 +162,7 @@ class ProcessLiveEventUseCaseTest {
         useCase(event)
         useCase(event.copy(id = "event-danmaku-2", timestamp = 12L))
 
-        assertEquals(listOf("ems-preset-03#1"), bluetoothRepository.playedWaveforms)
+        assertEquals(listOf("DANMAKU:ems-preset-03#1"), bluetoothRepository.enqueuedWaveforms)
         assertEquals("cooldown_skipped", logRepository.records.last().outputMessage)
     }
 
@@ -224,7 +224,7 @@ class ProcessLiveEventUseCaseTest {
             ),
         )
 
-        assertEquals(listOf("ems-preset-01#1"), bluetoothRepository.playedWaveforms)
+        assertEquals(listOf("LIKE:ems-preset-01#1"), bluetoothRepository.enqueuedWaveforms)
         assertEquals("ok", logRepository.records.last().outputMessage)
     }
 
@@ -275,7 +275,7 @@ class ProcessLiveEventUseCaseTest {
             )
         }
 
-        assertEquals(listOf("ems-preset-02#1"), bluetoothRepository.playedWaveforms)
+        assertEquals(listOf("LIKE:ems-preset-02#1"), bluetoothRepository.enqueuedWaveforms)
         assertEquals("ok", logRepository.records.last().outputMessage)
     }
 
@@ -326,8 +326,8 @@ class ProcessLiveEventUseCaseTest {
         )
 
         assertEquals(
-            listOf("gift-wave#3"),
-            bluetoothRepository.playedWaveforms,
+            listOf("GIFT:gift-wave#3"),
+            bluetoothRepository.enqueuedWaveforms,
         )
     }
 
@@ -377,7 +377,7 @@ class ProcessLiveEventUseCaseTest {
             ),
         )
 
-        assertEquals(listOf("gift-wave#1"), bluetoothRepository.playedWaveforms)
+        assertEquals(listOf("GIFT:gift-wave#1"), bluetoothRepository.enqueuedWaveforms)
     }
 
     private class StaticRuleRepository(
@@ -409,6 +409,7 @@ class ProcessLiveEventUseCaseTest {
             MutableStateFlow(BluetoothRuntimeStatus())
 
         val playedWaveforms = mutableListOf<String>()
+        val enqueuedWaveforms = mutableListOf<String>()
 
         override suspend fun scan(): List<BluetoothDevice> = emptyList()
 
@@ -423,6 +424,19 @@ class ProcessLiveEventUseCaseTest {
             failure?.let { throw it }
             playedWaveforms += "$waveformId#$repeatCount"
         }
+
+        override suspend fun enqueueWaveform(
+            waveformId: String,
+            eventType: LiveEventType,
+            repeatCount: Int,
+        ) {
+            failure?.let { throw it }
+            enqueuedWaveforms += "${eventType.name}:$waveformId#$repeatCount"
+        }
+
+        override suspend fun clearActiveWaveforms() = Unit
+
+        override fun setMixModeEnabled(enabled: Boolean) = Unit
     }
 
     private class FakeCommandSocketClient : CommandSocketClient {

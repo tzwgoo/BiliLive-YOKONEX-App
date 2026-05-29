@@ -7,9 +7,12 @@ import com.yokonex.bililive.data.bluetooth.model.BluetoothRuntimeStatus
 import com.yokonex.bililive.data.storage.DefaultWaveforms
 import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.data.storage.dao.WaveformDao
+import com.yokonex.bililive.domain.model.LiveEventType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,6 +42,14 @@ class DefaultBluetoothRepository(
     private var lastScannedDevices: List<BluetoothDevice> = emptyList()
     private var connectedDevice: BluetoothDevice? = null
     private val connectionMutex = Mutex()
+    private var mixModeEnabled: Boolean = false
+    private var mixElapsedMs: Long = 0L
+    private var mixPlaybackJob: Job? = null
+    private var mixRuntime = BluetoothMixRuntime(
+        bleManager = bleManager,
+        protocolEncoder = protocolEncoder,
+        protocol = "ems_v2",
+    )
 
     init {
         scope.launch {
@@ -87,6 +98,12 @@ class DefaultBluetoothRepository(
                     deviceName = device.name,
                     batteryLevel = bleManager.telemetry.value.batteryLevel,
                 )
+                mixRuntime = BluetoothMixRuntime(
+                    bleManager = bleManager,
+                    protocolEncoder = protocolEncoder,
+                    protocol = device.protocol,
+                )
+                mixElapsedMs = 0L
                 bleManager.write(protocolEncoder.createBatteryQueryPacket())
                 _connectionState.value = BluetoothConnectionState.CONNECTED
             }.getOrElse { error ->
@@ -106,6 +123,10 @@ class DefaultBluetoothRepository(
             connectedDevice = null
             lastScannedDevices = markConnectedDevice(lastScannedDevices, null)
             _devices.value = lastScannedDevices
+            mixPlaybackJob?.cancel()
+            mixPlaybackJob = null
+            mixRuntime.clearLayers()
+            mixElapsedMs = 0L
             _runtimeStatus.value = BluetoothRuntimeStatus()
             _connectionState.value = BluetoothConnectionState.DISCONNECTED
         }
@@ -116,10 +137,7 @@ class DefaultBluetoothRepository(
         repeatCount: Int,
     ) {
         val device = connectedDevice ?: throw IllegalStateException("当前没有已连接的蓝牙设备")
-        val waveform = waveformDao.findById(waveformId)
-            ?.let(WaveformMapper::fromEntity)
-            ?: builtinWaveforms[waveformId]
-            ?: throw IllegalArgumentException("未找到波形 $waveformId")
+        val waveform = resolveWaveform(waveformId)
         repeat(repeatCount.coerceAtLeast(1)) {
             waveformRuntime.play(
                 waveform = waveform,
@@ -146,6 +164,109 @@ class DefaultBluetoothRepository(
                         )
                     }
                 },
+            )
+        }
+    }
+
+    override suspend fun enqueueWaveform(
+        waveformId: String,
+        eventType: LiveEventType,
+        repeatCount: Int,
+    ) {
+        if (!mixModeEnabled) {
+            playWaveform(waveformId, repeatCount)
+            return
+        }
+        val device = connectedDevice ?: throw IllegalStateException("当前没有已连接的蓝牙设备")
+        val waveform = resolveWaveform(waveformId)
+        mixRuntime.enqueueLayer(
+            com.yokonex.bililive.data.bluetooth.model.ActiveWaveformLayer(
+                id = "${eventType.name.lowercase()}-${System.nanoTime()}",
+                eventType = eventType,
+                waveform = waveform,
+                startedAtElapsedMs = mixElapsedMs,
+                repeatCount = repeatCount.coerceAtLeast(1),
+                priority = MixPolicy.priorityOf(eventType),
+                weight = MixPolicy.weightOf(eventType),
+            ),
+        )
+        val frame = mixRuntime.tick(mixElapsedMs)
+        updateMixRuntimeStatus(
+            device = device,
+            waveformName = waveform.name,
+            frame = frame,
+        )
+        ensureMixPlaybackLoop(
+            device = device,
+            waveformName = waveform.name,
+        )
+    }
+
+    override suspend fun clearActiveWaveforms() {
+        mixPlaybackJob?.cancel()
+        mixPlaybackJob = null
+        mixRuntime.clearLayers()
+        mixElapsedMs = 0L
+        _runtimeStatus.update { currentStatus ->
+            currentStatus.copy(
+                waveformName = "",
+                channelAStrength = 0,
+                channelBStrength = 0,
+            )
+        }
+    }
+
+    override fun setMixModeEnabled(enabled: Boolean) {
+        mixModeEnabled = enabled
+    }
+
+    private fun ensureMixPlaybackLoop(
+        device: BluetoothDevice,
+        waveformName: String,
+    ) {
+        if (mixPlaybackJob?.isActive == true) {
+            return
+        }
+        mixPlaybackJob = scope.launch {
+            while (mixRuntime.hasActiveLayers()) {
+                delay(MixPolicy.DEFAULT_TICK_MS)
+                mixElapsedMs += MixPolicy.DEFAULT_TICK_MS
+                val frame = mixRuntime.tick(mixElapsedMs)
+                updateMixRuntimeStatus(
+                    device = device,
+                    waveformName = waveformName,
+                    frame = frame,
+                )
+            }
+        }
+    }
+
+    private suspend fun resolveWaveform(
+        waveformId: String,
+    ): com.yokonex.bililive.domain.model.WaveformDefinition =
+        waveformDao.findById(waveformId)
+            ?.let(WaveformMapper::fromEntity)
+            ?: builtinWaveforms[waveformId]
+            ?: throw IllegalArgumentException("未找到波形 $waveformId")
+
+    private fun updateMixRuntimeStatus(
+        device: BluetoothDevice,
+        waveformName: String,
+        frame: com.yokonex.bililive.data.bluetooth.model.MixFrame?,
+    ) {
+        _runtimeStatus.update { currentStatus ->
+            currentStatus.copy(
+                connected = true,
+                deviceName = device.name,
+                waveformName = waveformName,
+                channelAStrength = frame?.channelA ?: 0,
+                channelBStrength = frame?.channelB ?: 0,
+                leaderEventType = frame?.leaderEventType,
+                activeLayerCount = mixRuntime.activeLayerCount(),
+                outputCap = frame?.cap ?: MixPolicy.NORMAL_CAP,
+                mixedChannelAStrength = frame?.channelA ?: 0,
+                mixedChannelBStrength = frame?.channelB ?: 0,
+                mixModeEnabled = mixModeEnabled,
             )
         }
     }

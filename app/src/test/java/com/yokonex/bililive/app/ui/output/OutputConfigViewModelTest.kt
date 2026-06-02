@@ -5,10 +5,15 @@ import com.yokonex.bililive.data.bluetooth.BluetoothRepository
 import com.yokonex.bililive.data.bluetooth.model.BluetoothConnectionState
 import com.yokonex.bililive.data.bluetooth.model.BluetoothDevice
 import com.yokonex.bililive.data.bluetooth.model.BluetoothRuntimeStatus
+import com.yokonex.bililive.data.websocket.CommandSocketClient
+import com.yokonex.bililive.data.websocket.CommandSocketRuntimeInfo
+import com.yokonex.bililive.data.websocket.CommandSocketState
 import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.OutputMode
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -76,6 +81,57 @@ class OutputConfigViewModelTest {
         assertEquals(150, state.channelAStrength)
         assertEquals(120, state.channelBStrength)
     }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun state_includesWebsocketRuntimeInfo() = runTest {
+        val client = FakeOutputCommandSocketClient(
+            connectionStateFlow = MutableStateFlow(CommandSocketState.CONNECTED),
+            runtimeInfoFlow = MutableStateFlow(
+                CommandSocketRuntimeInfo(
+                    userId = "123456",
+                    uid = "game_123456",
+                    isReady = true,
+                    sdkEvent = "SDK_READY",
+                    networkState = "CONNECTED",
+                ),
+            ),
+        )
+        val viewModel = OutputConfigViewModel(
+            commandSocketClient = client,
+        )
+
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals("已连接", state.websocketStatus)
+        assertEquals("123456", state.websocketUserId)
+        assertEquals("SDK_READY", state.websocketSdkEvent)
+        assertEquals("CONNECTED", state.websocketNetworkState)
+        assertEquals(null, state.websocketErrorMessage)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun connectCommandChannel_whenClientThrows_showsErrorState() = runTest {
+        val client = FakeOutputCommandSocketClient(
+            failure = IllegalStateException("登录超时"),
+        )
+        val viewModel = OutputConfigViewModel(
+            commandSocketClient = client,
+        )
+
+        viewModel.updateSocketUid("123456")
+        viewModel.updateSocketToken("token-demo")
+        advanceUntilIdle()
+
+        viewModel.connectCommandChannel()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals("连接异常", state.websocketStatus)
+        assertEquals("登录超时", state.websocketErrorMessage)
+    }
 }
 
 private class FakeOutputBluetoothRepository(
@@ -107,4 +163,31 @@ private class FakeOutputBluetoothRepository(
     override suspend fun clearActiveWaveforms() = Unit
 
     override fun setMixModeEnabled(enabled: Boolean) = Unit
+}
+
+private class FakeOutputCommandSocketClient(
+    private val connectionStateFlow: MutableStateFlow<CommandSocketState> = MutableStateFlow(CommandSocketState.DISCONNECTED),
+    private val runtimeInfoFlow: MutableStateFlow<CommandSocketRuntimeInfo> = MutableStateFlow(CommandSocketRuntimeInfo()),
+    private val failure: Throwable? = null,
+) : CommandSocketClient {
+    override val connectionState: StateFlow<CommandSocketState> = connectionStateFlow
+    override val runtimeInfo: StateFlow<CommandSocketRuntimeInfo> = runtimeInfoFlow
+
+    override suspend fun connect(
+        wsUrl: String,
+        uid: String,
+        token: String,
+    ) {
+        failure?.let { throw it }
+        connectionStateFlow.value = CommandSocketState.CONNECTED
+    }
+
+    override suspend fun disconnect() {
+        connectionStateFlow.value = CommandSocketState.DISCONNECTED
+    }
+
+    override suspend fun sendCommand(
+        commandSlot: String,
+        repeatCount: Int,
+    ) = Unit
 }

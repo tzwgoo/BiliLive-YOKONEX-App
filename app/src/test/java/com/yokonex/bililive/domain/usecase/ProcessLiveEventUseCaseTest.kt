@@ -12,6 +12,7 @@ import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.OutputMode
 import com.yokonex.bililive.domain.model.TriggerRule
 import com.yokonex.bililive.data.websocket.CommandSocketClient
+import com.yokonex.bililive.data.websocket.CommandSocketRuntimeInfo
 import com.yokonex.bililive.data.websocket.CommandSocketState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -442,6 +443,8 @@ class ProcessLiveEventUseCaseTest {
     private class FakeCommandSocketClient : CommandSocketClient {
         override val connectionState: StateFlow<CommandSocketState> =
             MutableStateFlow(CommandSocketState.DISCONNECTED)
+        override val runtimeInfo: StateFlow<CommandSocketRuntimeInfo> =
+            MutableStateFlow(CommandSocketRuntimeInfo())
 
         val commands = mutableListOf<String>()
 

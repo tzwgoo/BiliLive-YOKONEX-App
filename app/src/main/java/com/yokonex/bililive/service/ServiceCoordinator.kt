@@ -2,6 +2,7 @@ package com.yokonex.bililive.service
 
 import com.yokonex.bililive.data.live.ThirdPartyLiveGateway
 import com.yokonex.bililive.data.websocket.CommandSocketClient
+import com.yokonex.bililive.data.websocket.CommandSocketRuntimeInfo
 import com.yokonex.bililive.data.websocket.CommandSocketState
 import com.yokonex.bililive.domain.model.LiveEvent
 import com.yokonex.bililive.domain.model.OutputMode
@@ -156,6 +157,8 @@ private class PreviewThirdPartyLiveGateway : ThirdPartyLiveGateway {
 private class PreviewCommandSocketClient : CommandSocketClient {
     private val state = MutableStateFlow(CommandSocketState.DISCONNECTED)
     override val connectionState: StateFlow<CommandSocketState> = state.asStateFlow()
+    private val runtime = MutableStateFlow(CommandSocketRuntimeInfo())
+    override val runtimeInfo: StateFlow<CommandSocketRuntimeInfo> = runtime.asStateFlow()
 
     override suspend fun connect(
         wsUrl: String,
@@ -163,10 +166,18 @@ private class PreviewCommandSocketClient : CommandSocketClient {
         token: String,
     ) {
         state.value = CommandSocketState.CONNECTED
+        runtime.value = CommandSocketRuntimeInfo(
+            userId = uid.removePrefix("game_"),
+            uid = uid,
+            isReady = true,
+            sdkEvent = "SDK_READY",
+            networkState = "CONNECTED",
+        )
     }
 
     override suspend fun disconnect() {
         state.value = CommandSocketState.DISCONNECTED
+        runtime.value = CommandSocketRuntimeInfo()
     }
 
     override suspend fun sendCommand(

@@ -160,7 +160,7 @@ fun OutputConfigScreen(
                 StatusCard(
                     title = "IM 状态",
                     value = uiState.websocketStatus,
-                    supportingText = "用于向下游执行器发送固定槽位指令。",
+                    supportingText = uiState.websocketDetailText,
                 )
             }
             item {
@@ -209,6 +209,15 @@ fun OutputConfigScreen(
                     ) {
                         Text("退出指令通道")
                     }
+                }
+            }
+            if (!uiState.websocketErrorMessage.isNullOrBlank()) {
+                item {
+                    Text(
+                        text = uiState.websocketErrorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }

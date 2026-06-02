@@ -30,4 +30,8 @@ class CommandPayloadFactory {
     fun buildPing(): String = buildJsonObject {
         put("type", "ping")
     }.toString()
+
+    fun buildGetStatus(): String = buildJsonObject {
+        put("type", "getStatus")
+    }.toString()
 }

@@ -2,6 +2,7 @@ package com.yokonex.bililive.data.websocket
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,6 +17,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -27,6 +29,7 @@ import java.util.concurrent.TimeUnit
 
 interface CommandSocketClient {
     val connectionState: StateFlow<CommandSocketState>
+    val runtimeInfo: StateFlow<CommandSocketRuntimeInfo>
 
     suspend fun connect(
         wsUrl: String,
@@ -48,6 +51,18 @@ enum class CommandSocketState {
     CONNECTED,
     ERROR,
 }
+
+data class CommandSocketRuntimeInfo(
+    val userId: String = "",
+    val uid: String = "",
+    val isReady: Boolean = false,
+    val sdkEvent: String = "",
+    val networkState: String = "",
+    val totalSessions: Int? = null,
+    val wsConnections: Int? = null,
+    val lastHeartbeatTimestamp: Long? = null,
+    val lastErrorMessage: String? = null,
+)
 
 fun deriveUserIdFromUid(uid: String): String =
     uid.removePrefix("game_").trim()
@@ -75,14 +90,18 @@ class OkHttpCommandSocketClient(
     private val json = Json { ignoreUnknownKeys = true }
     private val _connectionState = MutableStateFlow(CommandSocketState.DISCONNECTED)
     override val connectionState: StateFlow<CommandSocketState> = _connectionState.asStateFlow()
+    private val _runtimeInfo = MutableStateFlow(CommandSocketRuntimeInfo())
+    override val runtimeInfo: StateFlow<CommandSocketRuntimeInfo> = _runtimeInfo.asStateFlow()
 
     private var connection: SocketConnection? = null
+    private var messageChannel: Channel<JsonObject>? = null
     private var wsUrl: String = ""
     private var uid: String = ""
     private var token: String = ""
     private var userId: String = ""
     private var loggedIn: Boolean = false
     private var pingJob = scope.launchSilently { }
+    private var readerJob = scope.launchSilently { }
     private var lastReceivedAt: Long = 0L
 
     override suspend fun connect(
@@ -96,8 +115,13 @@ class OkHttpCommandSocketClient(
             this.uid = uid
             this.token = token
             this.userId = deriveUserIdFromUid(uid)
-            establishConnectionLocked()
-            loginLocked()
+            try {
+                establishConnectionLocked()
+                loginLocked()
+            } catch (error: Exception) {
+                handleConnectionFailureLocked(error.message ?: "下游指令通道连接失败")
+                throw error
+            }
         }
     }
 
@@ -110,10 +134,14 @@ class OkHttpCommandSocketClient(
             } catch (_: Exception) {
             }
             pingJob.cancel()
+            readerJob.cancel()
             connection?.close()
+            messageChannel?.close()
             connection = null
+            messageChannel = null
             loggedIn = false
             _connectionState.value = CommandSocketState.DISCONNECTED
+            _runtimeInfo.value = CommandSocketRuntimeInfo()
         }
     }
 
@@ -126,19 +154,21 @@ class OkHttpCommandSocketClient(
             repeat(repeatCount.coerceAtLeast(1)) {
                 connection?.send(payloadFactory.buildSendCommand(userId, commandSlot))
                 while (true) {
-                    val message = receiveJsonLocked()
+                    val message = receiveMessageLocked()
                     when (message["type"]?.jsonPrimitive?.content.orEmpty()) {
-                        "commandResult" -> break
-                        "pong",
-                        "connected",
-                        "heartbeat",
-                        "status",
-                        "network",
-                        "message",
-                        -> continue
-
+                        "commandResult" -> {
+                            val success = message["success"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
+                            if (!success) {
+                                val failureMessage = message["message"]?.jsonPrimitive?.contentOrNull ?: "下游指令通道发送失败"
+                                updateLastError(failureMessage)
+                                throw RuntimeException(failureMessage)
+                            }
+                            break
+                        }
                         "error" -> {
-                            throw RuntimeException(message["message"]?.jsonPrimitive?.content ?: "下游指令通道返回错误")
+                            val failureMessage = message["message"]?.jsonPrimitive?.contentOrNull ?: "下游指令通道返回错误"
+                            updateLastError(failureMessage)
+                            throw RuntimeException(failureMessage)
                         }
                     }
                 }
@@ -159,59 +189,64 @@ class OkHttpCommandSocketClient(
 
     private suspend fun establishConnectionLocked() {
         pingJob.cancel()
+        readerJob.cancel()
         connection?.close()
+        messageChannel?.close()
         _connectionState.value = CommandSocketState.CONNECTING
         loggedIn = false
         lastReceivedAt = timeProvider()
+        _runtimeInfo.value = CommandSocketRuntimeInfo(
+            uid = uid,
+        )
         connection = connectionFactory(wsUrl)
+        messageChannel = Channel(capacity = Channel.UNLIMITED)
+        startReaderLoopLocked()
     }
 
     private suspend fun loginLocked() {
         val currentConnection = connection ?: error("下游指令通道尚未连接")
         currentConnection.send(payloadFactory.buildLogin(uid, token))
-        val loginResult: JsonObject = withTimeout(loginTimeoutMillis) {
-            waitForLoginResultLocked()
+        val loginResult = try {
+            withTimeout(loginTimeoutMillis) {
+                waitForLoginResultLocked()
+            }
+        } catch (error: Exception) {
+            val failureMessage = error.message ?: "下游指令通道登录超时"
+            updateLastError(failureMessage)
+            _connectionState.value = CommandSocketState.ERROR
+            throw RuntimeException(failureMessage, error)
         }
-        val success = loginResult["success"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+        val success = loginResult["success"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
         if (!success) {
+            val failureMessage = loginResult["message"]?.jsonPrimitive?.contentOrNull ?: "下游指令通道登录失败"
+            updateLastError(failureMessage)
             _connectionState.value = CommandSocketState.ERROR
-            throw RuntimeException(loginResult["message"]?.jsonPrimitive?.content ?: "下游指令通道登录失败")
-        }
-        val returnedUserId = loginResult["data"]?.jsonObject?.get("userId")?.jsonPrimitive?.content.orEmpty()
-        if (returnedUserId.isNotBlank()) {
-            userId = returnedUserId
-        }
-        if (userId.isBlank()) {
-            _connectionState.value = CommandSocketState.ERROR
-            throw RuntimeException("下游指令通道登录成功，但未返回可用的 userId")
+            throw RuntimeException(failureMessage)
         }
         loggedIn = true
         _connectionState.value = CommandSocketState.CONNECTED
+        updateLastError(null)
         startPingLoop()
+        currentConnection.send(payloadFactory.buildGetStatus())
     }
-
-    private suspend fun receiveJsonLocked(): JsonObject =
-        json.parseToJsonElement(connection?.receive().orEmpty()).jsonObject.also {
-            lastReceivedAt = timeProvider()
-        }
 
     private suspend fun waitForLoginResultLocked(): JsonObject {
         while (true) {
-            val message = receiveJsonLocked()
+            val message = receiveMessageLocked()
             when (message["type"]?.jsonPrimitive?.content.orEmpty()) {
                 "loginResult" -> return message
-                "connected",
-                "heartbeat",
-                "pong",
-                "status",
-                "network",
-                "message",
-                -> continue
-
-                "error" -> throw RuntimeException(message["message"]?.jsonPrimitive?.content ?: "下游指令通道登录失败")
+                "error" -> {
+                    val failureMessage = message["message"]?.jsonPrimitive?.contentOrNull ?: "下游指令通道登录失败"
+                    updateLastError(failureMessage)
+                    throw RuntimeException(failureMessage)
+                }
             }
         }
     }
+
+    private suspend fun receiveMessageLocked(): JsonObject =
+        messageChannel?.receiveCatching()?.getOrNull()
+            ?: throw RuntimeException("下游指令通道已断开")
 
     private fun startPingLoop() {
         if (pingIntervalMillis <= 0) {
@@ -243,6 +278,140 @@ class OkHttpCommandSocketClient(
             return false
         }
         return (timeProvider() - lastReceivedAt) >= idleTimeoutMillis
+    }
+
+    private fun startReaderLoopLocked() {
+        val currentConnection = connection ?: return
+        val currentChannel = messageChannel ?: return
+        readerJob = scope.launchSilently(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                while (true) {
+                    val rawMessage = currentConnection.receive()
+                    val message = json.parseToJsonElement(rawMessage).jsonObject
+                    lastReceivedAt = timeProvider()
+                    handleIncomingMessage(message)
+                    currentChannel.send(message)
+                }
+            } catch (cancelled: CancellationException) {
+                currentChannel.close(cancelled)
+                throw cancelled
+            } catch (error: Exception) {
+                currentChannel.close(error)
+                mutex.withLock {
+                    if (connection === currentConnection) {
+                        handleConnectionFailureLocked(error.message ?: "下游指令通道已断开")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleIncomingMessage(message: JsonObject) {
+        when (message["type"]?.jsonPrimitive?.content.orEmpty()) {
+            "connected" -> {
+                updateRuntimeInfo { current ->
+                    current.copy(
+                        uid = if (current.uid.isBlank()) uid else current.uid,
+                    )
+                }
+            }
+
+            "loginResult" -> {
+                val data = message["data"]?.jsonObject
+                val returnedUserId = data?.get("userId")?.jsonPrimitive?.contentOrNull.orEmpty()
+                if (returnedUserId.isNotBlank()) {
+                    userId = returnedUserId
+                }
+                updateRuntimeInfo { current ->
+                    current.copy(
+                        userId = returnedUserId.ifBlank { current.userId },
+                        uid = data?.get("uid")?.jsonPrimitive?.contentOrNull ?: current.uid.ifBlank { uid },
+                        isReady = data?.get("isReady")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: current.isReady,
+                        lastErrorMessage = if ((message["success"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false)) {
+                            null
+                        } else {
+                            message["message"]?.jsonPrimitive?.contentOrNull ?: current.lastErrorMessage
+                        },
+                    )
+                }
+            }
+
+            "status" -> {
+                val messageUserId = message["userId"]?.jsonPrimitive?.contentOrNull
+                if (messageUserId.isNullOrBlank()) {
+                    val data = message["data"]?.jsonObject
+                    updateRuntimeInfo { current ->
+                        current.copy(
+                            totalSessions = data?.get("totalSessions")?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: current.totalSessions,
+                            wsConnections = data?.get("wsConnections")?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: current.wsConnections,
+                        )
+                    }
+                } else {
+                    val data = message["data"]?.jsonObject
+                    val sdkEvent = data?.get("event")?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val isReady = data?.get("isReady")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
+                    updateRuntimeInfo { current ->
+                        current.copy(
+                            userId = messageUserId,
+                            uid = data?.get("user")?.jsonPrimitive?.contentOrNull ?: current.uid,
+                            sdkEvent = sdkEvent,
+                            isReady = isReady,
+                        )
+                    }
+                    if (sdkEvent == "KICKED_OUT") {
+                        _connectionState.value = CommandSocketState.ERROR
+                        updateLastError("IM 会话被踢下线")
+                    }
+                }
+            }
+
+            "network" -> {
+                val messageUserId = message["userId"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val networkState = message["data"]?.jsonObject?.get("state")?.jsonPrimitive?.contentOrNull.orEmpty()
+                updateRuntimeInfo { current ->
+                    current.copy(
+                        userId = messageUserId.ifBlank { current.userId },
+                        networkState = networkState,
+                    )
+                }
+            }
+
+            "heartbeat" -> {
+                val timestamp = message["data"]?.jsonObject?.get("timestamp")?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+                updateRuntimeInfo { current ->
+                    current.copy(
+                        lastHeartbeatTimestamp = timestamp ?: current.lastHeartbeatTimestamp,
+                    )
+                }
+            }
+
+            "error" -> {
+                val failureMessage = message["message"]?.jsonPrimitive?.contentOrNull ?: "下游指令通道返回错误"
+                updateLastError(failureMessage)
+            }
+        }
+    }
+
+    private fun updateRuntimeInfo(transform: (CommandSocketRuntimeInfo) -> CommandSocketRuntimeInfo) {
+        _runtimeInfo.value = transform(_runtimeInfo.value)
+    }
+
+    private fun updateLastError(message: String?) {
+        updateRuntimeInfo { current ->
+            current.copy(lastErrorMessage = message)
+        }
+    }
+
+    private suspend fun handleConnectionFailureLocked(message: String) {
+        pingJob.cancel()
+        readerJob.cancel()
+        connection?.close()
+        messageChannel?.close()
+        connection = null
+        messageChannel = null
+        loggedIn = false
+        _connectionState.value = CommandSocketState.ERROR
+        updateLastError(message)
     }
 
     private fun validateUrl(url: String) {
@@ -320,8 +489,10 @@ private class OkHttpSocketConnection(
     }
 }
 
-private fun CoroutineScope.launchSilently(block: suspend CoroutineScope.() -> Unit) =
-    launch {
+private fun CoroutineScope.launchSilently(
+    start: CoroutineStart = CoroutineStart.DEFAULT,
+    block: suspend CoroutineScope.() -> Unit,
+) = launch(start = start) {
         try {
             block()
         } catch (cancelled: CancellationException) {

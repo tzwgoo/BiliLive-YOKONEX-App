@@ -120,6 +120,20 @@ class OutputConfigViewModel(
                     }
                 }
             }
+            viewModelScope.launch {
+                client.runtimeInfo.collect { runtimeInfo ->
+                    _uiState.update { currentState ->
+                        currentState.copy(
+                            websocketUserId = runtimeInfo.userId,
+                            websocketUid = runtimeInfo.uid,
+                            websocketSdkEvent = runtimeInfo.sdkEvent,
+                            websocketNetworkState = runtimeInfo.networkState,
+                            websocketHeartbeatLabel = runtimeInfo.lastHeartbeatTimestamp?.toString().orEmpty(),
+                            websocketErrorMessage = runtimeInfo.lastErrorMessage,
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -186,6 +200,13 @@ class OutputConfigViewModel(
                     uid = uiState.value.socketUid,
                     token = uiState.value.socketToken,
                 )
+            }.onFailure { error ->
+                _uiState.update { currentState ->
+                    currentState.copy(
+                        websocketStatus = "连接异常",
+                        websocketErrorMessage = error.message ?: "IM 连接失败",
+                    )
+                }
             }
         }
     }
@@ -200,6 +221,11 @@ class OutputConfigViewModel(
         }
         viewModelScope.launch {
             runCatching { client.disconnect() }
+                .onFailure { error ->
+                    _uiState.update { currentState ->
+                        currentState.copy(websocketErrorMessage = error.message ?: "退出指令通道失败")
+                    }
+                }
         }
     }
 
@@ -279,6 +305,12 @@ data class OutputConfigUiState(
     val socketUid: String = "",
     val socketToken: String = "demo-token",
     val websocketStatus: String = "未连接",
+    val websocketUserId: String = "",
+    val websocketUid: String = "",
+    val websocketSdkEvent: String = "",
+    val websocketNetworkState: String = "",
+    val websocketHeartbeatLabel: String = "",
+    val websocketErrorMessage: String? = null,
     val bluetoothStatus: String = "未连接",
     val connectingBluetoothDeviceId: String? = null,
     val bluetoothErrorMessage: String? = null,
@@ -308,6 +340,15 @@ data class OutputConfigUiState(
         bluetoothStatus != "连接中" &&
             connectingBluetoothDeviceId == null &&
             bluetoothDevices.none { device -> device.connected && device.id == deviceId }
+
+    val websocketDetailText: String
+        get() = buildWebsocketDetailText(
+            userId = websocketUserId,
+            sdkEvent = websocketSdkEvent,
+            networkState = websocketNetworkState,
+            heartbeatLabel = websocketHeartbeatLabel,
+            errorMessage = websocketErrorMessage,
+        )
 }
 
 data class UiBluetoothDevice(
@@ -357,3 +398,34 @@ private fun LiveEventType?.toDisplayLabel(): String =
         LiveEventType.SYSTEM -> "系统主层"
         null -> ""
     }
+
+private fun buildWebsocketDetailText(
+    userId: String,
+    sdkEvent: String,
+    networkState: String,
+    heartbeatLabel: String,
+    errorMessage: String?,
+): String {
+    val parts = buildList {
+        if (userId.isNotBlank()) {
+            add("用户 $userId")
+        }
+        if (sdkEvent.isNotBlank()) {
+            add("IM $sdkEvent")
+        }
+        if (networkState.isNotBlank()) {
+            add("网络 $networkState")
+        }
+        if (heartbeatLabel.isNotBlank()) {
+            add("心跳 $heartbeatLabel")
+        }
+        if (!errorMessage.isNullOrBlank()) {
+            add("错误 $errorMessage")
+        }
+    }
+    return if (parts.isEmpty()) {
+        "用于向下游执行器发送固定槽位指令。"
+    } else {
+        parts.joinToString(" · ")
+    }
+}

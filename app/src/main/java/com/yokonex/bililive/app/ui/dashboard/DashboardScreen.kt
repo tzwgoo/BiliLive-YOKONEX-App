@@ -63,7 +63,7 @@ fun DashboardScreen(
                         StatusCard(
                             title = "监听状态",
                             value = uiState.serviceStatusLabel,
-                            supportingText = "房间 ${uiState.roomId}",
+                            supportingText = uiState.serviceSupportingText,
                             modifier = Modifier
                                 .width(cardWidth)
                                 .height(cardHeight),

@@ -153,6 +153,12 @@ data class DashboardUiState(
             is ServiceStatus.Error -> "异常"
         }
 
+    val serviceSupportingText: String
+        get() = when (val status = serviceStatus) {
+            is ServiceStatus.Error -> "房间 $roomId\n错误：${status.message}"
+            else -> "房间 $roomId"
+        }
+
     val outputModeLabel: String
         get() = if (outputMode == OutputMode.BLUETOOTH) "蓝牙 EMS" else "IM 指令"
 }

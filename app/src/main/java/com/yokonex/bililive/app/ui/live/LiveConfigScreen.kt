@@ -121,7 +121,7 @@ fun LiveConfigScreen(
             StatusCard(
                 title = "监听状态",
                 value = uiState.monitoringStatus,
-                supportingText = "消息源：${uiState.providerName}",
+                supportingText = uiState.monitoringSupportingText,
             )
         }
         item {

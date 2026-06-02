@@ -313,6 +313,12 @@ data class LiveConfigUiState(
             is ServiceStatus.Error -> "异常"
         }
 
+    val monitoringSupportingText: String
+        get() = when (val status = serviceStatus) {
+            is ServiceStatus.Error -> "消息源：$providerName\n错误：${status.message}"
+            else -> "消息源：$providerName"
+        }
+
     val monitoringButtonLabel: String
         get() = if (isMonitoring) "停止监听" else "启动监听"
 

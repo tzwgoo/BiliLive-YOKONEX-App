@@ -176,7 +176,7 @@ private fun sampleDomainRules(): List<TriggerRule> = listOf(
         ),
         actionBindings = com.yokonex.bililive.domain.model.ActionBindings(
             bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-06"),
-            websocketAction = OutputAction.WebSocketCommandAction("2"),
+            websocketAction = OutputAction.WebSocketCommandAction("command_two"),
         ),
     ),
     TriggerRule(
@@ -189,7 +189,7 @@ private fun sampleDomainRules(): List<TriggerRule> = listOf(
         ),
         actionBindings = com.yokonex.bililive.domain.model.ActionBindings(
             bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-01"),
-            websocketAction = OutputAction.WebSocketCommandAction("3"),
+            websocketAction = OutputAction.WebSocketCommandAction("command_three"),
         ),
     ),
     TriggerRule(
@@ -203,7 +203,7 @@ private fun sampleDomainRules(): List<TriggerRule> = listOf(
         ),
         actionBindings = com.yokonex.bililive.domain.model.ActionBindings(
             bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-03"),
-            websocketAction = OutputAction.WebSocketCommandAction("3"),
+            websocketAction = OutputAction.WebSocketCommandAction("command_three"),
         ),
     ),
 )
@@ -266,7 +266,16 @@ private fun toUiRuleItem(
 }
 
 private fun String.toFixedSlotLabel(): String =
-    buildString {
-        append("固定槽位 ")
-        append(padStart(2, '0'))
+    when (this) {
+        "command_one" -> "固定槽位 01"
+        "command_two" -> "固定槽位 02"
+        "command_three" -> "固定槽位 03"
+        "command_four" -> "固定槽位 04"
+        "command_five" -> "固定槽位 05"
+        "command_six" -> "固定槽位 06"
+        "command_seven" -> "固定槽位 07"
+        "command_eight" -> "固定槽位 08"
+        "command_nine" -> "固定槽位 09"
+        "command_ten" -> "固定槽位 10"
+        else -> "固定槽位 $this"
     }

@@ -159,7 +159,7 @@ private class SettingsGiftTriggerModeProvider(
 
 private fun buildDefaultRules(): List<TriggerRule> {
     val giftRules = (1..10).map { index ->
-        val slot = index.toString()
+        val slot = "command_${fixedSlotName(index)}"
         val presetId = "ems-preset-${index.toString().padStart(2, '0')}"
         val minPrice = when (index) {
             1 -> 0
@@ -210,7 +210,7 @@ private fun buildDefaultRules(): List<TriggerRule> {
             ),
             actionBindings = ActionBindings(
                 bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-01"),
-                websocketAction = OutputAction.WebSocketCommandAction("1"),
+                websocketAction = OutputAction.WebSocketCommandAction("command_one"),
             ),
         ),
         TriggerRule(
@@ -225,8 +225,22 @@ private fun buildDefaultRules(): List<TriggerRule> {
             ),
             actionBindings = ActionBindings(
                 bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-03"),
-                websocketAction = OutputAction.WebSocketCommandAction("3"),
+                websocketAction = OutputAction.WebSocketCommandAction("command_three"),
             ),
         ),
     )
 }
+
+private fun fixedSlotName(index: Int): String =
+    when (index) {
+        1 -> "one"
+        2 -> "two"
+        3 -> "three"
+        4 -> "four"
+        5 -> "five"
+        6 -> "six"
+        7 -> "seven"
+        8 -> "eight"
+        9 -> "nine"
+        else -> "ten"
+    }

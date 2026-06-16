@@ -44,6 +44,7 @@ class ThirdPartyMessageParserTest {
         )
         assertGiftEvent(
             event = event,
+            expectedEventType = LiveEventType.GIFT,
             expectedUserName = "测试用户",
             expectedGiftName = "辣条",
             expectedGiftNum = 2,
@@ -62,6 +63,7 @@ class ThirdPartyMessageParserTest {
 
         assertGiftEvent(
             event = event,
+            expectedEventType = LiveEventType.GIFT,
             expectedUserName = "测试用户",
             expectedGiftName = "牛哇牛哇",
             expectedGiftNum = 3,
@@ -75,16 +77,19 @@ class ThirdPartyMessageParserTest {
         val parser = ThirdPartyMessageParser(roomId = "22608112") { 1_714_113_037_000L }
 
         val event = parser.parse(
-            """{"source":"third_party_ws","event_type":"gift","cmd":"GUARD_BUY","room_id":22608112,"open_id":"","uname":"大航海用户","timestamp":1714113037,"payload":{"gift_id":1,"gift_name":"舰长","gift_num":2,"price":138000,"r_price":138000}}""",
+            """{"source":"third_party_ws","event_type":"guard_buy","cmd":"GUARD_BUY","room_id":22608112,"open_id":"","uname":"大航海用户","timestamp":1714113037,"payload":{"gift_id":1,"gift_name":"舰长","gift_num":2,"price":138000,"r_price":138000,"guard_level":3,"guard_label":"舰长"}}""",
         )
 
         assertGiftEvent(
             event = event,
+            expectedEventType = LiveEventType.GUARD_BUY,
             expectedUserName = "大航海用户",
             expectedGiftName = "舰长",
             expectedGiftNum = 2,
             expectedPrice = 138000,
             expectedTotalPrice = 138000,
+            expectedGuardLevel = 3,
+            expectedGuardLabel = "舰长",
         )
     }
 
@@ -93,16 +98,18 @@ class ThirdPartyMessageParserTest {
         val parser = ThirdPartyMessageParser(roomId = "22608112") { 1_714_113_037_000L }
 
         val event = parser.parse(
-            """{"source":"third_party_ws","event_type":"gift","cmd":"SUPER_CHAT_MESSAGE","room_id":22608112,"open_id":"","uname":"SC用户","timestamp":1714113037,"payload":{"gift_id":12000,"gift_name":"醒目留言","gift_num":1,"price":100,"r_price":100,"message":"测试 SC"}}""",
+            """{"source":"third_party_ws","event_type":"super_chat","cmd":"SUPER_CHAT_MESSAGE","room_id":22608112,"open_id":"","uname":"SC用户","timestamp":1714113037,"payload":{"gift_id":12000,"gift_name":"醒目留言","gift_num":1,"price":100,"r_price":100,"message":"测试 SC"}}""",
         )
 
         assertGiftEvent(
             event = event,
+            expectedEventType = LiveEventType.SUPER_CHAT,
             expectedUserName = "SC用户",
             expectedGiftName = "醒目留言",
             expectedGiftNum = 1,
             expectedPrice = 100,
             expectedTotalPrice = 100,
+            expectedMessage = "测试 SC",
         )
     }
 
@@ -111,17 +118,36 @@ class ThirdPartyMessageParserTest {
         val parser = ThirdPartyMessageParser(roomId = "22608112") { 1_714_113_037_000L }
 
         val event = parser.parse(
-            """{"source":"third_party_ws","event_type":"gift","cmd":"USER_TOAST_MSG","room_id":22608112,"open_id":"","uname":"续费用户","timestamp":1714113037,"payload":{"gift_id":1,"gift_name":"舰长","gift_num":1,"price":50000,"r_price":50000,"toast_msg":"<%续费用户%>续费了舰长1个月"}}""",
+            """{"source":"third_party_ws","event_type":"guard_renew","cmd":"USER_TOAST_MSG","room_id":22608112,"open_id":"","uname":"续费用户","timestamp":1714113037,"payload":{"gift_id":1,"gift_name":"舰长","gift_num":1,"price":50000,"r_price":50000,"toast_msg":"<%续费用户%>续费了舰长1个月","guard_level":3,"guard_label":"舰长"}}""",
         )
 
         assertGiftEvent(
             event = event,
+            expectedEventType = LiveEventType.GUARD_RENEW,
             expectedUserName = "续费用户",
             expectedGiftName = "舰长",
             expectedGiftNum = 1,
             expectedPrice = 50000,
             expectedTotalPrice = 50000,
+            expectedToastMessage = "<%续费用户%>续费了舰长1个月",
+            expectedGuardLevel = 3,
+            expectedGuardLabel = "舰长",
         )
+    }
+
+    @Test
+    fun parse_danmakuWithGuardLevel_mapsToGuardDanmakuType() {
+        val parser = ThirdPartyMessageParser(roomId = "22608112") { 1_714_113_037_000L }
+
+        val event = parser.parse(
+            """{"source":"third_party_ws","event_type":"danmaku_captain","cmd":"DANMU_MSG","room_id":22608112,"open_id":"","uname":"舰长用户","timestamp":1714113037,"payload":{"msg":"舰长来了","guard_level":3,"guard_label":"舰长"}}""",
+        )
+        val payload = event.payload as EventPayload.DanmakuPayload
+
+        assertEquals(LiveEventType.DANMAKU_CAPTAIN, event.type)
+        assertEquals("舰长来了", payload.message)
+        assertEquals(3, payload.guardLevel)
+        assertEquals("舰长", payload.guardLabel)
     }
 
     @Test
@@ -140,20 +166,29 @@ class ThirdPartyMessageParserTest {
 
     private fun assertGiftEvent(
         event: com.yokonex.bililive.domain.model.LiveEvent,
+        expectedEventType: LiveEventType,
         expectedUserName: String,
         expectedGiftName: String,
         expectedGiftNum: Int,
         expectedPrice: Int,
         expectedTotalPrice: Int,
+        expectedMessage: String = "",
+        expectedToastMessage: String = "",
+        expectedGuardLevel: Int = 0,
+        expectedGuardLabel: String = "",
     ) {
         val payload = event.payload as EventPayload.GiftPayload
 
-        assertEquals(LiveEventType.GIFT, event.type)
+        assertEquals(expectedEventType, event.type)
         assertEquals(expectedUserName, event.userName)
         assertEquals("22608112", event.roomId)
         assertEquals(expectedGiftName, payload.giftName)
         assertEquals(expectedGiftNum, payload.giftNum)
         assertEquals(expectedPrice, payload.price)
         assertEquals(expectedTotalPrice, payload.totalPrice)
+        assertEquals(expectedMessage, payload.message)
+        assertEquals(expectedToastMessage, payload.toastMessage)
+        assertEquals(expectedGuardLevel, payload.guardLevel)
+        assertEquals(expectedGuardLabel, payload.guardLabel)
     }
 }

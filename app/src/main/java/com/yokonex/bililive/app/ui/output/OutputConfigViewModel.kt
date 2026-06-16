@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -27,6 +28,20 @@ class OutputConfigViewModel(
 
     init {
         settingsStore?.let { store ->
+            viewModelScope.launch {
+                // 先同步一次持久化快照，避免首屏等待 DataStore 连续流回放时出现短暂空态。
+                _uiState.update { currentState ->
+                    currentState.copy(
+                        outputMode = store.outputMode.first(),
+                        socketEndpoint = store.websocketEndpoint.first(),
+                        socketUid = store.websocketUid.first(),
+                        socketToken = store.websocketToken.first(),
+                        recentBluetoothDeviceId = store.recentDeviceId.first().orEmpty(),
+                        recentBluetoothDeviceName = store.recentDeviceName.first().orEmpty(),
+                        bluetoothMixModeEnabled = store.bluetoothMixModeEnabled.first(),
+                    )
+                }
+            }
             viewModelScope.launch {
                 store.outputMode.collect { mode ->
                     _uiState.update { currentState ->
@@ -52,6 +67,27 @@ class OutputConfigViewModel(
                 store.websocketToken.collect { token ->
                     _uiState.update { currentState ->
                         currentState.copy(socketToken = token)
+                    }
+                }
+            }
+            viewModelScope.launch {
+                store.recentDeviceId.collect { deviceId ->
+                    _uiState.update { currentState ->
+                        currentState.copy(recentBluetoothDeviceId = deviceId.orEmpty())
+                    }
+                }
+            }
+            viewModelScope.launch {
+                store.recentDeviceName.collect { deviceName ->
+                    _uiState.update { currentState ->
+                        currentState.copy(recentBluetoothDeviceName = deviceName.orEmpty())
+                    }
+                }
+            }
+            viewModelScope.launch {
+                store.bluetoothMixModeEnabled.collect { enabled ->
+                    _uiState.update { currentState ->
+                        currentState.copy(bluetoothMixModeEnabled = enabled)
                     }
                 }
             }
@@ -296,6 +332,20 @@ class OutputConfigViewModel(
             runCatching { repository.disconnect() }
         }
     }
+
+    fun updateBluetoothMixMode(enabled: Boolean) {
+        bluetoothRepository?.setMixModeEnabled(enabled)
+        // 用户切换混波时先立即刷新 UI，再由持久化流回放最终状态。
+        _uiState.update { currentState ->
+            currentState.copy(bluetoothMixModeEnabled = enabled)
+        }
+        if (settingsStore == null) {
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateBluetoothMixModeEnabled(enabled)
+        }
+    }
 }
 
 data class OutputConfigUiState(
@@ -322,6 +372,9 @@ data class OutputConfigUiState(
     val bluetoothOutputCapLabel: String = "130",
     val bluetoothMixModeLabel: String = "串行",
     val activeBluetoothLayerCount: Int = 0,
+    val bluetoothMixModeEnabled: Boolean = false,
+    val recentBluetoothDeviceId: String = "",
+    val recentBluetoothDeviceName: String = "",
 ) {
     val canConnectSocket: Boolean
         get() = websocketStatus != "连接中" &&
@@ -349,6 +402,15 @@ data class OutputConfigUiState(
             heartbeatLabel = websocketHeartbeatLabel,
             errorMessage = websocketErrorMessage,
         )
+
+    val recentBluetoothDeviceLabel: String
+        get() = when {
+            recentBluetoothDeviceName.isNotBlank() && recentBluetoothDeviceId.isNotBlank() ->
+                "$recentBluetoothDeviceName · $recentBluetoothDeviceId"
+            recentBluetoothDeviceName.isNotBlank() -> recentBluetoothDeviceName
+            recentBluetoothDeviceId.isNotBlank() -> recentBluetoothDeviceId
+            else -> "暂无记录"
+        }
 }
 
 data class UiBluetoothDevice(
@@ -393,7 +455,13 @@ private fun BluetoothConnectionState.toDisplayLabel(): String =
 private fun LiveEventType?.toDisplayLabel(): String =
     when (this) {
         LiveEventType.GIFT -> "礼物主层"
+        LiveEventType.SUPER_CHAT -> "醒目留言主层"
+        LiveEventType.GUARD_BUY -> "上舰主层"
+        LiveEventType.GUARD_RENEW -> "续费主层"
         LiveEventType.DANMAKU -> "弹幕主层"
+        LiveEventType.DANMAKU_CAPTAIN -> "舰长弹幕主层"
+        LiveEventType.DANMAKU_COMMANDER -> "提督弹幕主层"
+        LiveEventType.DANMAKU_GOVERNOR -> "总督弹幕主层"
         LiveEventType.LIKE -> "点赞主层"
         LiveEventType.SYSTEM -> "系统主层"
         null -> ""

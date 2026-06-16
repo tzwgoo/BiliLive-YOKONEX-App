@@ -34,8 +34,22 @@ class RulesViewModelTest {
         val giftRule = viewModel.uiState.value.rules.first { rule -> rule.id == "rule_gift_combo" }
 
         assertTrue(giftRule.canEditGiftPriceRange)
+        assertTrue(giftRule.canEditMinGuardLevel)
+        assertTrue(giftRule.canEditGuardWaveforms)
         assertTrue(giftRule.waveformOptions.isNotEmpty())
         assertTrue(giftRule.imSlotLabel.isNotBlank())
+    }
+
+    @Test
+    fun danmakuRule_exposesKeywordAndCooldownEditors() {
+        val viewModel = RulesViewModel()
+        val danmakuRule = viewModel.uiState.value.rules.first { rule -> rule.id == "rule_danmaku_default" }
+
+        assertTrue(danmakuRule.canEditKeywords)
+        assertTrue(danmakuRule.canEditCooldownSeconds)
+        assertTrue(danmakuRule.canEditCooldownScope)
+        assertTrue(danmakuRule.canEditUserLimitWindowSeconds)
+        assertTrue(danmakuRule.canEditUserLimitMaxTriggers)
     }
 
     @Test
@@ -60,6 +74,42 @@ class RulesViewModelTest {
 
         val firstRule = viewModel.uiState.value.rules.first()
         assertTrue(firstRule.waveformOptions.any { it.id == "custom-wave-01" })
+    }
+
+    @Test
+    fun parseKeywords_supportsCommaVariantsAndLineBreaks() {
+        assertEquals(
+            listOf("开火", "冲冲冲", "加速"),
+            parseKeywords("开火，冲冲冲\n加速"),
+        )
+    }
+
+    @Test
+    fun updateGuardWaveform_updatesLocalRuleState() {
+        val viewModel = RulesViewModel()
+
+        viewModel.updateGuardWaveform(
+            ruleId = "rule_gift_combo",
+            guardLevel = 2,
+            waveformId = "ems-preset-05",
+        )
+
+        val giftRule = viewModel.uiState.value.rules.first { rule -> rule.id == "rule_gift_combo" }
+        assertEquals("ems-preset-05", giftRule.guardWaveforms.first { it.guardLevel == 2 }.waveformId)
+    }
+
+    @Test
+    fun updateWebsocketSlot_updatesFixedCommandSlotLabel() {
+        val viewModel = RulesViewModel()
+
+        viewModel.updateWebsocketSlot(
+            ruleId = "rule_like_default",
+            commandSlot = "command_ten",
+        )
+
+        val likeRule = viewModel.uiState.value.rules.first { rule -> rule.id == "rule_like_default" }
+        assertEquals("command_ten", likeRule.selectedCommandSlot)
+        assertEquals("固定槽位 10", likeRule.imSlotLabel)
     }
 
     private class FakeWaveformDao : WaveformDao {

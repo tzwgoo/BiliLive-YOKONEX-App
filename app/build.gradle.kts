@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+import java.io.File
 import java.util.Properties
 
 val keystoreProperties = Properties()
@@ -11,6 +12,20 @@ val keystorePropertiesFile = rootProject.file("keystore.properties")
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use(keystoreProperties::load)
 }
+
+val buildPythonCandidates = listOfNotNull(
+    System.getenv("CHAQUOPY_BUILD_PYTHON"),
+    "D:/Users/${System.getProperty("user.name")}/anaconda3/python.exe",
+    "C:/Users/${System.getProperty("user.name")}/AppData/Local/Programs/Python/Python312/python.exe",
+    "C:/Users/${System.getProperty("user.name")}/AppData/Local/Programs/Python/Python311/python.exe",
+)
+
+// 优先寻找本机已有的 3.12 解释器，避免把构建链路绑定到其他开发者机器的绝对路径。
+val resolvedBuildPython = buildPythonCandidates.firstOrNull { candidate ->
+    File(candidate).exists()
+} ?: error(
+    "未找到可用的 Python 解释器，请设置 CHAQUOPY_BUILD_PYTHON 指向 Python 3.12。",
+)
 
 android {
     namespace = "com.yokonex.bililive"
@@ -76,7 +91,7 @@ android {
 chaquopy {
     defaultConfig {
         version = libs.versions.python.get()
-        buildPython("C:/Users/hosgoo/AppData/Local/Programs/Python/Python311/python.exe")
+        buildPython(resolvedBuildPython)
         pip {
             install("aiohttp")
             install("PyJWT")

@@ -59,6 +59,12 @@ class DefaultBluetoothRepository(
                 }
             }
         }
+        scope.launch {
+            // 混波开关需要和持久化配置保持一致，避免应用重启后仓库仍沿用旧的内存状态。
+            settingsStore.bluetoothMixModeEnabled.collect { enabled ->
+                applyMixModeEnabled(enabled)
+            }
+        }
     }
 
     override suspend fun scan(): List<BluetoothDevice> {
@@ -93,10 +99,12 @@ class DefaultBluetoothRepository(
                 lastScannedDevices = markConnectedDevice(lastScannedDevices, deviceId)
                 _devices.value = lastScannedDevices
                 settingsStore.updateRecentDeviceId(deviceId)
+                settingsStore.updateRecentDeviceName(device.name)
                 _runtimeStatus.value = BluetoothRuntimeStatus(
                     connected = true,
                     deviceName = device.name,
                     batteryLevel = bleManager.telemetry.value.batteryLevel,
+                    mixModeEnabled = mixModeEnabled,
                 )
                 mixRuntime = BluetoothMixRuntime(
                     bleManager = bleManager,
@@ -217,7 +225,7 @@ class DefaultBluetoothRepository(
     }
 
     override fun setMixModeEnabled(enabled: Boolean) {
-        mixModeEnabled = enabled
+        applyMixModeEnabled(enabled)
     }
 
     private fun ensureMixPlaybackLoop(
@@ -248,6 +256,30 @@ class DefaultBluetoothRepository(
             ?.let(WaveformMapper::fromEntity)
             ?: builtinWaveforms[waveformId]
             ?: throw IllegalArgumentException("未找到波形 $waveformId")
+
+    private fun applyMixModeEnabled(enabled: Boolean) {
+        mixModeEnabled = enabled
+        if (!enabled) {
+            // 关闭混波时要立即清理叠加层，避免界面已经切回串行，但底层仍继续输出旧的混波帧。
+            mixPlaybackJob?.cancel()
+            mixPlaybackJob = null
+            mixRuntime.clearLayers()
+            mixElapsedMs = 0L
+        }
+        _runtimeStatus.update { currentStatus ->
+            currentStatus.copy(
+                waveformName = if (!enabled) "" else currentStatus.waveformName,
+                channelAStrength = if (!enabled) 0 else currentStatus.channelAStrength,
+                channelBStrength = if (!enabled) 0 else currentStatus.channelBStrength,
+                leaderEventType = if (!enabled) null else currentStatus.leaderEventType,
+                activeLayerCount = if (!enabled) 0 else currentStatus.activeLayerCount,
+                outputCap = if (!enabled) MixPolicy.NORMAL_CAP else currentStatus.outputCap,
+                mixedChannelAStrength = if (!enabled) 0 else currentStatus.mixedChannelAStrength,
+                mixedChannelBStrength = if (!enabled) 0 else currentStatus.mixedChannelBStrength,
+                mixModeEnabled = enabled,
+            )
+        }
+    }
 
     private fun updateMixRuntimeStatus(
         device: BluetoothDevice,

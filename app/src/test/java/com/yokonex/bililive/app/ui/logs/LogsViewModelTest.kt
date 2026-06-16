@@ -18,15 +18,15 @@ class LogsViewModelTest {
     @Test
     fun filterLogs_returnsOnlySelectedEventType() {
         val logs = listOf(
-            logEntity(id = "gift-1", eventType = "GIFT"),
+            logEntity(id = "gift-1", eventType = "SUPER_CHAT"),
             logEntity(id = "like-1", eventType = "LIKE"),
             logEntity(id = "system-1", eventType = "SYSTEM"),
         )
 
-        val filtered = filterLogs(logs, LogEventFilter.LIKE)
+        val filtered = filterLogs(logs, LogEventFilter.GIFT)
 
         assertEquals(1, filtered.size)
-        assertTrue(filtered.all { it.eventType == "LIKE" })
+        assertTrue(filtered.all { it.eventType == "SUPER_CHAT" })
     }
 
     @Test
@@ -41,9 +41,25 @@ class LogsViewModelTest {
         assertEquals(2, filtered.size)
     }
 
+    @Test
+    fun toUiEventLog_mapsUserLimitSkippedStatus() {
+        val uiLog = toUiEventLog(
+            logEntity(
+                id = "danmaku-1",
+                eventType = "DANMAKU",
+                outputSuccess = false,
+                outputMessage = "user_limit_skipped",
+            ),
+        )
+
+        assertEquals("限流跳过", uiLog.statusLabel)
+    }
+
     private fun logEntity(
         id: String,
         eventType: String,
+        outputSuccess: Boolean = true,
+        outputMessage: String = "ok",
     ) = EventLogEntity(
         id = id,
         eventType = eventType,
@@ -51,8 +67,8 @@ class LogsViewModelTest {
         rawPayloadJson = "{}",
         matchedRuleId = null,
         outputMode = "BLUETOOTH",
-        outputSuccess = true,
-        outputMessage = "ok",
+        outputSuccess = outputSuccess,
+        outputMessage = outputMessage,
         createdAt = 1L,
     )
 }

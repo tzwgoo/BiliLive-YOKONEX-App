@@ -39,6 +39,7 @@ class SettingsStoreTest {
         assertEquals("", settingsStore.roomId.first())
         assertEquals(OutputMode.BLUETOOTH, settingsStore.outputMode.first())
         assertEquals("ws://103.236.55.92:43001/", settingsStore.websocketEndpoint.first())
+        assertEquals(false, settingsStore.bluetoothMixModeEnabled.first())
         assertTrue(settingsStore.autoReconnectEnabled.first())
         assertEquals(GiftTriggerMode.SINGLE, settingsStore.giftTriggerMode.first())
     }
@@ -71,6 +72,25 @@ class SettingsStoreTest {
         settingsStore.updateGiftTriggerMode(GiftTriggerMode.BY_QUANTITY)
 
         assertEquals(GiftTriggerMode.BY_QUANTITY, settingsStore.giftTriggerMode.first())
+    }
+
+    @Test
+    fun updateBluetoothMixModeEnabled_persistsFlagAndRecentDeviceName() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("settings-store", ".preferences_pb").toFile()
+            },
+        )
+        val settingsStore = SettingsStore(dataStore)
+
+        settingsStore.updateBluetoothMixModeEnabled(true)
+        settingsStore.updateRecentDeviceId("AA:BB:CC:77")
+        settingsStore.updateRecentDeviceName("YYC-DJ-V2-077")
+
+        assertEquals(true, settingsStore.bluetoothMixModeEnabled.first())
+        assertEquals("AA:BB:CC:77", settingsStore.recentDeviceId.first())
+        assertEquals("YYC-DJ-V2-077", settingsStore.recentDeviceName.first())
     }
 
     private class FakeWaveformDao : WaveformDao {

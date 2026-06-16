@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.yokonex.bililive.AppServices
 import com.yokonex.bililive.data.storage.JsonRuleStore
 import com.yokonex.bililive.data.storage.SettingsStore
+import com.yokonex.bililive.domain.model.CooldownScope
 import com.yokonex.bililive.domain.model.GiftTriggerMode
 import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.RuleConditions
@@ -92,6 +93,9 @@ class LiveConfigViewModel(
                             danmakuEnabled = danmakuRule?.enabled ?: false,
                             danmakuKeywords = danmakuRule?.conditions?.keywords?.joinToString(",").orEmpty(),
                             danmakuCooldownSeconds = danmakuRule?.cooldownSeconds?.toString() ?: "0",
+                            danmakuUserLimitWindowSeconds = danmakuRule?.conditions?.userLimitWindowSeconds?.toString() ?: "0",
+                            danmakuUserLimitMaxTriggers = danmakuRule?.conditions?.userLimitMaxTriggers?.toString() ?: "0",
+                            danmakuMinGuardLevel = danmakuRule?.conditions?.minGuardLevel ?: 0,
                         )
                     }
                 }
@@ -228,6 +232,62 @@ class LiveConfigViewModel(
         }
     }
 
+    fun updateDanmakuUserLimitWindowSeconds(value: String) {
+        val sanitized = value.filter(Char::isDigit).take(3)
+        _uiState.update { currentState ->
+            currentState.copy(danmakuUserLimitWindowSeconds = sanitized)
+        }
+        if (ruleStore == null) {
+            return
+        }
+        if (sanitized.isBlank()) {
+            return
+        }
+        updateRule(DANMAKU_RULE_ID) { rule ->
+            rule.copy(
+                conditions = rule.conditions.copy(
+                    userLimitWindowSeconds = sanitized.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                ),
+            )
+        }
+    }
+
+    fun updateDanmakuUserLimitMaxTriggers(value: String) {
+        val sanitized = value.filter(Char::isDigit).take(3)
+        _uiState.update { currentState ->
+            currentState.copy(danmakuUserLimitMaxTriggers = sanitized)
+        }
+        if (ruleStore == null) {
+            return
+        }
+        if (sanitized.isBlank()) {
+            return
+        }
+        updateRule(DANMAKU_RULE_ID) { rule ->
+            rule.copy(
+                conditions = rule.conditions.copy(
+                    userLimitMaxTriggers = sanitized.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                ),
+            )
+        }
+    }
+
+    fun updateDanmakuMinGuardLevel(level: Int) {
+        _uiState.update { currentState ->
+            currentState.copy(danmakuMinGuardLevel = level.coerceIn(0, 3))
+        }
+        if (ruleStore == null) {
+            return
+        }
+        updateRule(DANMAKU_RULE_ID) { rule ->
+            rule.copy(
+                conditions = rule.conditions.copy(
+                    minGuardLevel = level.coerceIn(0, 3),
+                ),
+            )
+        }
+    }
+
     fun toggleMonitoring() {
         viewModelScope.launch {
             val appContext = AppServices.applicationContext
@@ -279,7 +339,12 @@ class LiveConfigViewModel(
                 name = "弹幕默认规则",
                 enabled = false,
                 eventType = LiveEventType.DANMAKU,
-                conditions = RuleConditions(),
+                // 直播配置页只维护基础弹幕规则，但默认冷却语义也要和规则页保持一致。
+                cooldownScope = CooldownScope.PER_USER,
+                conditions = RuleConditions(
+                    userLimitWindowSeconds = 0,
+                    userLimitMaxTriggers = 0,
+                ),
             )
 
             else -> error("未知规则 $ruleId")
@@ -295,6 +360,9 @@ data class LiveConfigUiState(
     val danmakuEnabled: Boolean = false,
     val danmakuKeywords: String = "",
     val danmakuCooldownSeconds: String = "0",
+    val danmakuUserLimitWindowSeconds: String = "0",
+    val danmakuUserLimitMaxTriggers: String = "0",
+    val danmakuMinGuardLevel: Int = 0,
     val providerName: String = "第三方直播消息流",
     val serviceStatus: ServiceStatus = ServiceStatus.Idle,
     val batteryOptimizationSupported: Boolean = false,

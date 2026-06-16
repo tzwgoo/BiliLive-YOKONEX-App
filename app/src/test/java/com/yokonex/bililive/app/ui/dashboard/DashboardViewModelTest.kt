@@ -140,14 +140,15 @@ class DashboardViewModelTest {
         val logs = listOf(
             dashboardEntity(id = "gift-1", eventType = "GIFT", createdAt = 30L),
             dashboardEntity(id = "like-1", eventType = "LIKE", createdAt = 20L),
-            dashboardEntity(id = "danmaku-1", eventType = "DANMAKU", createdAt = 10L),
+            dashboardEntity(id = "danmaku-1", eventType = "DANMAKU_CAPTAIN", createdAt = 10L),
             dashboardEntity(id = "gift-2", eventType = "GIFT", createdAt = 5L),
+            dashboardEntity(id = "guard-buy-1", eventType = "GUARD_BUY", createdAt = 25L),
         )
 
         val sections = buildDashboardEventSections(logs)
 
         assertEquals(listOf("礼物", "点赞", "弹幕"), sections.map { it.title })
-        assertEquals(listOf("gift-1", "gift-2"), sections[0].events.map { it.id })
+        assertEquals(listOf("gift-1", "guard-buy-1", "gift-2"), sections[0].events.map { it.id })
         assertEquals(listOf("like-1"), sections[1].events.map { it.id })
         assertEquals(listOf("danmaku-1"), sections[2].events.map { it.id })
     }

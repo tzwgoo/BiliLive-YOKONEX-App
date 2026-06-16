@@ -43,6 +43,8 @@ fun LiveConfigScreen(
     onDanmakuEnabledChange: (Boolean) -> Unit,
     onDanmakuKeywordsChange: (String) -> Unit,
     onDanmakuCooldownSecondsChange: (String) -> Unit,
+    onDanmakuUserLimitWindowSecondsChange: (String) -> Unit,
+    onDanmakuUserLimitMaxTriggersChange: (String) -> Unit,
     onRefreshBatteryOptimizationStatus: () -> Unit,
     onRequestIgnoreBatteryOptimization: () -> Unit,
     onOpenBatteryOptimizationSettings: () -> Unit,
@@ -278,6 +280,24 @@ fun LiveConfigScreen(
                 value = uiState.danmakuCooldownSeconds,
                 onValueChange = onDanmakuCooldownSecondsChange,
                 label = { Text("弹幕冷却（秒）") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+        }
+        item {
+            OutlinedTextField(
+                value = uiState.danmakuUserLimitWindowSeconds,
+                onValueChange = onDanmakuUserLimitWindowSecondsChange,
+                label = { Text("每用户限流窗口（秒）") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+        }
+        item {
+            OutlinedTextField(
+                value = uiState.danmakuUserLimitMaxTriggers,
+                onValueChange = onDanmakuUserLimitMaxTriggersChange,
+                label = { Text("窗口内最大触发次数") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )

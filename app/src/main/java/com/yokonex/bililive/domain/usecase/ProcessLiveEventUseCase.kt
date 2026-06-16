@@ -2,10 +2,12 @@ package com.yokonex.bililive.domain.usecase
 
 import com.yokonex.bililive.data.bluetooth.BluetoothRepository
 import com.yokonex.bililive.data.websocket.CommandSocketClient
+import com.yokonex.bililive.domain.model.CooldownScope
+import com.yokonex.bililive.domain.model.EventPayload
 import com.yokonex.bililive.domain.model.LiveEvent
-import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.OutputAction
 import com.yokonex.bililive.domain.model.GiftTriggerMode
+import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.OutputMode
 import com.yokonex.bililive.domain.model.TriggerRule
 import com.yokonex.bililive.domain.rule.RuleMatcher
@@ -20,6 +22,7 @@ class ProcessLiveEventUseCase(
 ) {
     private val lastTriggeredAt = mutableMapOf<String, Long>()
     private val likeProgress = mutableMapOf<String, Int>()
+    private val userTriggerHistory = mutableMapOf<String, MutableList<Long>>()
 
     suspend operator fun invoke(event: LiveEvent) {
         val outputMode = outputModeProvider.getCurrentMode()
@@ -45,7 +48,7 @@ class ProcessLiveEventUseCase(
             return
         }
 
-        if (isOnCooldown(matchedRule, event.timestamp)) {
+        if (isOnCooldown(matchedRule, event)) {
             eventLogRepository.record(
                 ProcessedEventRecord(
                     eventId = event.id,
@@ -62,7 +65,24 @@ class ProcessLiveEventUseCase(
             return
         }
 
-        val action = RuleMatcher.resolveAction(matchedRule, outputMode)
+        if (isBlockedByUserLimit(matchedRule, event)) {
+            eventLogRepository.record(
+                ProcessedEventRecord(
+                    eventId = event.id,
+                    eventType = event.type.name,
+                    summary = buildEventSummary(event),
+                    rawPayloadJson = event.payload.toString(),
+                    matchedRuleId = matchedRule.id,
+                    outputMode = outputMode,
+                    outputSuccess = false,
+                    outputMessage = "user_limit_skipped",
+                    createdAt = event.timestamp,
+                ),
+            )
+            return
+        }
+
+        val action = resolveAction(matchedRule, outputMode, event)
         if (action == null) {
             eventLogRepository.record(
                 ProcessedEventRecord(
@@ -83,7 +103,8 @@ class ProcessLiveEventUseCase(
         val repeatCount = resolveRepeatCount(event)
         runCatching { executeAction(action, event.type, repeatCount) }
             .onSuccess {
-                rememberTrigger(matchedRule, event.timestamp)
+                rememberTrigger(matchedRule, event)
+                rememberUserLimitHit(matchedRule, event)
                 eventLogRepository.record(
                     ProcessedEventRecord(
                         eventId = event.id,
@@ -119,8 +140,15 @@ class ProcessLiveEventUseCase(
         rules: List<TriggerRule>,
         event: LiveEvent,
     ): TriggerRule? {
-        val likePayload = event.payload as? com.yokonex.bililive.domain.model.EventPayload.LikePayload
-        return rules.firstOrNull { rule ->
+        val likePayload = event.payload as? EventPayload.LikePayload
+        // 细分事件规则需要优先于基础族规则，否则 SC / 上舰会被普通礼物规则提前命中。
+        return rules
+            .sortedWith(
+                compareByDescending<TriggerRule> { rule -> rule.eventType == event.type }
+                    .thenByDescending { rule -> rule.eventType.category == event.type.category }
+                    .thenBy { rule -> rule.name },
+            )
+            .firstOrNull { rule ->
             if (likePayload != null && rule.eventType == LiveEventType.LIKE) {
                 shouldTriggerLikeRule(
                     rule = rule,
@@ -135,36 +163,96 @@ class ProcessLiveEventUseCase(
 
     private fun isOnCooldown(
         rule: TriggerRule,
-        eventTimestamp: Long,
+        event: LiveEvent,
     ): Boolean {
         if (rule.cooldownSeconds <= 0) {
             return false
         }
-        val lastTriggered = lastTriggeredAt[rule.id] ?: return false
-        return eventTimestamp < lastTriggered + rule.cooldownSeconds
+        val cooldownKey = buildCooldownKey(rule, event)
+        val lastTriggered = lastTriggeredAt[cooldownKey] ?: return false
+        return eventTimeMillis(event) < lastTriggered + rule.cooldownSeconds * 1_000L
     }
 
     private fun rememberTrigger(
         rule: TriggerRule,
-        eventTimestamp: Long,
+        event: LiveEvent,
     ) {
         if (rule.cooldownSeconds > 0) {
-            lastTriggeredAt[rule.id] = eventTimestamp
+            lastTriggeredAt[buildCooldownKey(rule, event)] = eventTimeMillis(event)
         }
+    }
+
+    private fun isBlockedByUserLimit(
+        rule: TriggerRule,
+        event: LiveEvent,
+    ): Boolean {
+        if (!event.type.isDanmakuFamily) {
+            return false
+        }
+        val windowSeconds = rule.conditions.userLimitWindowSeconds.coerceAtLeast(0)
+        val maxTriggers = rule.conditions.userLimitMaxTriggers.coerceAtLeast(0)
+        if (windowSeconds <= 0 || maxTriggers <= 0) {
+            return false
+        }
+        val historyKey = buildUserLimitKey(rule, event)
+        val history = userTriggerHistory[historyKey] ?: return false
+        val currentTimeMillis = eventTimeMillis(event)
+        val windowStartMillis = currentTimeMillis - windowSeconds * 1_000L
+        history.removeAll { timestamp -> timestamp < windowStartMillis }
+        return history.size >= maxTriggers
+    }
+
+    private fun rememberUserLimitHit(
+        rule: TriggerRule,
+        event: LiveEvent,
+    ) {
+        if (!event.type.isDanmakuFamily) {
+            return
+        }
+        val windowSeconds = rule.conditions.userLimitWindowSeconds.coerceAtLeast(0)
+        val maxTriggers = rule.conditions.userLimitMaxTriggers.coerceAtLeast(0)
+        if (windowSeconds <= 0 || maxTriggers <= 0) {
+            return
+        }
+        val historyKey = buildUserLimitKey(rule, event)
+        val history = userTriggerHistory.getOrPut(historyKey) { mutableListOf() }
+        val currentTimeMillis = eventTimeMillis(event)
+        val windowStartMillis = currentTimeMillis - windowSeconds * 1_000L
+        history.removeAll { timestamp -> timestamp < windowStartMillis }
+        history += currentTimeMillis
     }
 
     private fun buildEventSummary(event: LiveEvent): String =
         when (val payload = event.payload) {
-            is com.yokonex.bililive.domain.model.EventPayload.GiftPayload ->
-                "${event.userName} 送出 ${payload.giftName} x${payload.giftNum}"
+            is EventPayload.GiftPayload ->
+                buildString {
+                    append(event.userName)
+                    append(' ')
+                    append(
+                        when (event.type) {
+                            LiveEventType.SUPER_CHAT -> "发送"
+                            LiveEventType.GUARD_BUY -> "开通"
+                            LiveEventType.GUARD_RENEW -> "续费"
+                            else -> "送出"
+                        },
+                    )
+                    append(' ')
+                    append(payload.giftName)
+                    append(" x")
+                    append(payload.giftNum)
+                    if (payload.message.isNotBlank()) {
+                        append("：")
+                        append(payload.message)
+                    }
+                }
 
-            is com.yokonex.bililive.domain.model.EventPayload.LikePayload ->
+            is EventPayload.LikePayload ->
                 "${event.userName} 点赞 ${payload.likeCount}"
 
-            is com.yokonex.bililive.domain.model.EventPayload.DanmakuPayload ->
-                "${event.userName} 发送弹幕 ${payload.message}"
+            is EventPayload.DanmakuPayload ->
+                "${event.userName} 发送${event.type.displayLabel} ${payload.message}"
 
-            is com.yokonex.bililive.domain.model.EventPayload.SystemPayload ->
+            is EventPayload.SystemPayload ->
                 payload.message
         }
 
@@ -192,7 +280,7 @@ class ProcessLiveEventUseCase(
     }
 
     private suspend fun resolveRepeatCount(event: LiveEvent): Int {
-        val giftPayload = event.payload as? com.yokonex.bililive.domain.model.EventPayload.GiftPayload
+        val giftPayload = event.payload as? EventPayload.GiftPayload
             ?: return 1
         return when (giftTriggerModeProvider.getCurrentMode()) {
             GiftTriggerMode.SINGLE -> 1
@@ -203,7 +291,7 @@ class ProcessLiveEventUseCase(
     private fun shouldTriggerLikeRule(
         rule: TriggerRule,
         roomId: String,
-        payload: com.yokonex.bililive.domain.model.EventPayload.LikePayload,
+        payload: EventPayload.LikePayload,
     ): Boolean {
         val multiple = rule.conditions.likeMultiple ?: return true
         if (multiple <= 0) {
@@ -235,6 +323,48 @@ class ProcessLiveEventUseCase(
             return lastObservedLikeCount + likeDelta
         }
         return lastObservedLikeCount
+    }
+
+    private fun buildCooldownKey(
+        rule: TriggerRule,
+        event: LiveEvent,
+    ): String =
+        when (rule.cooldownScope) {
+            CooldownScope.GLOBAL -> rule.id
+            CooldownScope.PER_USER -> "${rule.id}:${event.roomId}:${event.userId.ifBlank { "anonymous" }}"
+        }
+
+    private fun buildUserLimitKey(
+        rule: TriggerRule,
+        event: LiveEvent,
+    ): String =
+        "${rule.id}:${event.roomId}:${event.userId.ifBlank { event.userName.ifBlank { "anonymous" } }}"
+
+    private fun resolveAction(
+        rule: TriggerRule,
+        outputMode: OutputMode,
+        event: LiveEvent,
+    ): OutputAction? {
+        val action = RuleMatcher.resolveAction(rule, outputMode) ?: return null
+        if (outputMode != OutputMode.BLUETOOTH || action !is OutputAction.BluetoothWaveformAction) {
+            return action
+        }
+        val guardLevel = (event.payload as? EventPayload.GiftPayload)?.guardLevel ?: return action
+        val overrideWaveformId = rule.actionBindings.guardWaveformIds[guardLevel]
+            ?.takeIf(String::isNotBlank)
+            ?: return action
+        // 礼物类事件允许按舰队等级覆盖波形，未配置时继续沿用规则主波形。
+        return action.copy(waveformId = overrideWaveformId)
+    }
+
+    private fun eventTimeMillis(event: LiveEvent): Long {
+        val timestamp = event.timestamp
+        // 兼容历史测试数据里的“秒级时间”和运行时真实的“毫秒时间”，统一后再做冷却与限流比较。
+        return when {
+            timestamp >= 1_000_000_000_000L -> timestamp
+            timestamp > 0L -> timestamp * 1_000L
+            else -> 0L
+        }
     }
 }
 

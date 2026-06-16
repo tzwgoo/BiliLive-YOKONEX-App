@@ -10,6 +10,7 @@ data class RuleEntity(
     val enabled: Boolean,
     val eventType: String,
     val cooldownSeconds: Int,
+    val cooldownScope: String?,
     val conditionsJson: String,
     val actionBindingsJson: String,
 )

@@ -23,7 +23,8 @@ class JsonRuleStore(
     defaultRules: List<TriggerRule>,
     private val json: Json = Json { ignoreUnknownKeys = true; prettyPrint = true },
 ) : RuleRepository {
-    private val entityState = MutableStateFlow(loadInitial(defaultRules.map(RuleMapper::toEntity)))
+    private val defaultRuleEntities = defaultRules.map(RuleMapper::toEntity)
+    private val entityState = MutableStateFlow(loadInitial(defaultRuleEntities))
     private val ruleState = MutableStateFlow(entityState.value.map(RuleMapper::fromEntity))
     val rules: StateFlow<List<TriggerRule>> = ruleState.asStateFlow()
 
@@ -74,7 +75,12 @@ class JsonRuleStore(
         }.getOrElse {
             persist(defaultRules)
             defaultRules
-        }.let(::normalizeLegacyDefaults)
+        }.let { entities ->
+            normalizeLegacyDefaults(
+                entities = entities,
+                defaultRules = defaultRules,
+            )
+        }
             .sortedBy(RuleEntity::name)
     }
 
@@ -89,6 +95,7 @@ class JsonRuleStore(
                         put("enabled", JsonPrimitive(entity.enabled))
                         put("eventType", JsonPrimitive(entity.eventType))
                         put("cooldownSeconds", JsonPrimitive(entity.cooldownSeconds))
+                        put("cooldownScope", JsonPrimitive(entity.cooldownScope ?: ""))
                         put("conditionsJson", JsonPrimitive(entity.conditionsJson))
                         put("actionBindingsJson", JsonPrimitive(entity.actionBindingsJson))
                     },
@@ -110,12 +117,16 @@ class JsonRuleStore(
             enabled = obj["enabled"]?.jsonPrimitive?.booleanOrNull ?: false,
             eventType = obj["eventType"]?.jsonPrimitive?.content.orEmpty(),
             cooldownSeconds = obj["cooldownSeconds"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+            cooldownScope = obj["cooldownScope"]?.jsonPrimitive?.content?.ifBlank { null },
             conditionsJson = obj["conditionsJson"]?.jsonPrimitive?.content.orEmpty(),
             actionBindingsJson = obj["actionBindingsJson"]?.jsonPrimitive?.content.orEmpty(),
         )
     }
 
-    private fun normalizeLegacyDefaults(entities: List<RuleEntity>): List<RuleEntity> {
+    private fun normalizeLegacyDefaults(
+        entities: List<RuleEntity>,
+        defaultRules: List<RuleEntity>,
+    ): List<RuleEntity> {
         val normalized = entities.map { entity ->
             val rule = RuleMapper.fromEntity(entity)
             when {
@@ -131,6 +142,7 @@ class JsonRuleStore(
                     rule.enabled &&
                     rule.cooldownSeconds == 3 &&
                     rule.conditions.keywords.isEmpty() -> {
+                    // 老版本把弹幕规则默认打开且附带冷却，这里回收为新的安全默认值。
                     RuleMapper.toEntity(
                         rule.copy(
                             enabled = false,
@@ -139,12 +151,38 @@ class JsonRuleStore(
                     )
                 }
 
+                rule.id.startsWith("danmaku-") && rule.cooldownScope == com.yokonex.bililive.domain.model.CooldownScope.GLOBAL -> {
+                    // 第二阶段开始弹幕类规则统一支持按用户冷却，老数据在这里补齐迁移。
+                    RuleMapper.toEntity(
+                        rule.copy(
+                            cooldownScope = com.yokonex.bililive.domain.model.CooldownScope.PER_USER,
+                        ),
+                    )
+                }
+
                 else -> entity
             }
         }
-        if (normalized != entities) {
-            persist(normalized)
+        val merged = mergeMissingDefaultRules(
+            existingRules = normalized,
+            defaultRules = defaultRules,
+        )
+        if (merged != entities) {
+            persist(merged)
         }
-        return normalized
+        return merged
+    }
+
+    private fun mergeMissingDefaultRules(
+        existingRules: List<RuleEntity>,
+        defaultRules: List<RuleEntity>,
+    ): List<RuleEntity> {
+        // 旧用户本地规则文件里不会自动出现新事件类型，这里按 ID 补齐缺失的默认规则。
+        val existingIds = existingRules.map(RuleEntity::id).toSet()
+        val missingRules = defaultRules.filterNot { rule -> rule.id in existingIds }
+        if (missingRules.isEmpty()) {
+            return existingRules
+        }
+        return existingRules + missingRules
     }
 }

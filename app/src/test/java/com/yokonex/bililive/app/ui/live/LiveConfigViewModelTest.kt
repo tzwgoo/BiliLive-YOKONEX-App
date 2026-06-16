@@ -1,9 +1,11 @@
 package com.yokonex.bililive.app.ui.live
 
 import com.yokonex.bililive.app.ui.MainDispatcherRule
+import com.yokonex.bililive.data.storage.JsonRuleStore
 import com.yokonex.bililive.data.storage.SettingsStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.yokonex.bililive.data.live.ThirdPartyLiveGateway
+import com.yokonex.bililive.domain.model.CooldownScope
 import com.yokonex.bililive.domain.model.GiftTriggerMode
 import com.yokonex.bililive.domain.model.LiveEvent
 import com.yokonex.bililive.domain.model.OutputMode
@@ -181,11 +183,44 @@ class LiveConfigViewModelTest {
         viewModel.updateDanmakuEnabled(true)
         viewModel.updateDanmakuKeywords("开火,冲冲冲")
         viewModel.updateDanmakuCooldownSeconds("6")
+        viewModel.updateDanmakuUserLimitWindowSeconds("30")
+        viewModel.updateDanmakuUserLimitMaxTriggers("2")
 
         assertEquals("200", viewModel.uiState.value.likeMultiple)
         assertTrue(viewModel.uiState.value.danmakuEnabled)
         assertEquals("开火,冲冲冲", viewModel.uiState.value.danmakuKeywords)
         assertEquals("6", viewModel.uiState.value.danmakuCooldownSeconds)
+        assertEquals("30", viewModel.uiState.value.danmakuUserLimitWindowSeconds)
+        assertEquals("2", viewModel.uiState.value.danmakuUserLimitMaxTriggers)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun updateDanmakuCooldownSeconds_createsPerUserCooldownRuleWhenMissing() = runTest {
+        val ruleStore = JsonRuleStore(
+            file = Files.createTempFile("live-config-rule-store", ".json").toFile(),
+            defaultRules = emptyList(),
+        )
+        val viewModel = LiveConfigViewModel(
+            ruleStore = ruleStore,
+            batteryOptimizationStatusProvider = FakeBatteryOptimizationStatusProvider(
+                BatteryOptimizationStatus(
+                    supported = false,
+                    ignoringBatteryOptimizations = true,
+                ),
+            ),
+        )
+
+        viewModel.updateDanmakuCooldownSeconds("6")
+        viewModel.updateDanmakuUserLimitWindowSeconds("30")
+        viewModel.updateDanmakuUserLimitMaxTriggers("2")
+        runCurrent()
+
+        val danmakuRule = ruleStore.rules.value.first { it.id == "danmaku-default" }
+        assertEquals(6, danmakuRule.cooldownSeconds)
+        assertEquals(CooldownScope.PER_USER, danmakuRule.cooldownScope)
+        assertEquals(30, danmakuRule.conditions.userLimitWindowSeconds)
+        assertEquals(2, danmakuRule.conditions.userLimitMaxTriggers)
     }
 
     @Test

@@ -47,6 +47,38 @@ class RuleMatcherTest {
     }
 
     @Test
+    fun baseGiftRule_matchesSuperChatSubtypeForBackwardCompatibility() {
+        val rule = TriggerRule(
+            id = "gift-range",
+            name = "礼物区间",
+            eventType = LiveEventType.GIFT,
+            conditions = RuleConditions(
+                minPrice = 30,
+                maxPrice = 200,
+            ),
+        )
+        val event = LiveEvent(
+            id = "event-super-chat",
+            type = LiveEventType.SUPER_CHAT,
+            timestamp = 1L,
+            userId = "1001",
+            userName = "tester",
+            roomId = "2001",
+            payload = EventPayload.GiftPayload(
+                giftName = "醒目留言",
+                giftNum = 1,
+                price = 100,
+                totalPrice = 100,
+                message = "测试 SC",
+            ),
+        )
+
+        val matched = RuleMatcher.matches(rule, event)
+
+        assertTrue(matched)
+    }
+
+    @Test
     fun likeRule_matchesWhenMultipleReached() {
         val rule = TriggerRule(
             id = "like-multiple",
@@ -96,6 +128,36 @@ class RuleMatcherTest {
         val matched = RuleMatcher.matches(rule, event)
 
         assertTrue(matched)
+    }
+
+    @Test
+    fun danmakuRule_rejectsWhenGuardLevelBelowRequirement() {
+        val rule = TriggerRule(
+            id = "danmaku-guard",
+            name = "舰队弹幕",
+            eventType = LiveEventType.DANMAKU,
+            conditions = RuleConditions(
+                minGuardLevel = 2,
+                keywords = listOf("开火"),
+            ),
+        )
+        val event = LiveEvent(
+            id = "event-danmaku-guard",
+            type = LiveEventType.DANMAKU_CAPTAIN,
+            timestamp = 3L,
+            userId = "1003",
+            userName = "tester",
+            roomId = "2001",
+            payload = EventPayload.DanmakuPayload(
+                message = "开火",
+                guardLevel = 3,
+                guardLabel = "舰长",
+            ),
+        )
+
+        val matched = RuleMatcher.matches(rule, event)
+
+        assertEquals(false, matched)
     }
 
     @Test

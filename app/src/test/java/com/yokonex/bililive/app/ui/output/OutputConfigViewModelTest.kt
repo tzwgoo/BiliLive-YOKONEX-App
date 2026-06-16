@@ -5,12 +5,16 @@ import com.yokonex.bililive.data.bluetooth.BluetoothRepository
 import com.yokonex.bililive.data.bluetooth.model.BluetoothConnectionState
 import com.yokonex.bililive.data.bluetooth.model.BluetoothDevice
 import com.yokonex.bililive.data.bluetooth.model.BluetoothRuntimeStatus
+import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.data.websocket.CommandSocketClient
 import com.yokonex.bililive.data.websocket.CommandSocketRuntimeInfo
 import com.yokonex.bililive.data.websocket.CommandSocketState
 import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.OutputMode
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import java.nio.file.Files
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -132,11 +136,72 @@ class OutputConfigViewModelTest {
         assertEquals("连接异常", state.websocketStatus)
         assertEquals("登录超时", state.websocketErrorMessage)
     }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun updateBluetoothMixMode_persistsFlagAndUpdatesRepository() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("output-config", ".preferences_pb").toFile()
+            },
+        )
+        val settingsStore = SettingsStore(dataStore)
+        val repository = FakeOutputBluetoothRepository(
+            runtimeStatusFlow = MutableStateFlow(BluetoothRuntimeStatus()),
+        )
+        val viewModel = OutputConfigViewModel(
+            settingsStore = settingsStore,
+            bluetoothRepository = repository,
+        )
+
+        viewModel.updateBluetoothMixMode(true)
+        advanceUntilIdle()
+
+        assertEquals(true, repository.mixModeEnabledValue)
+        assertEquals(true, viewModel.uiState.value.bluetoothMixModeEnabled)
+        assertEquals(true, settingsStore.bluetoothMixModeEnabled.first())
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun state_includesRecentBluetoothDeviceFromSettings() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("output-config", ".preferences_pb").toFile()
+            },
+        )
+        val settingsStore = SettingsStore(dataStore)
+        settingsStore.updateRecentDeviceId("AA:BB:CC:99")
+        settingsStore.updateRecentDeviceName("YYC-DJ-V2-099")
+        // 先等待 DataStore 写入完成，再创建 ViewModel，避免测试里读到尚未回放的旧快照。
+        advanceUntilIdle()
+        val viewModel = OutputConfigViewModel(
+            settingsStore = settingsStore,
+            bluetoothRepository = FakeOutputBluetoothRepository(
+                runtimeStatusFlow = MutableStateFlow(BluetoothRuntimeStatus()),
+            ),
+        )
+
+        val state = viewModel.uiState.first { uiState ->
+            uiState.recentBluetoothDeviceId == "AA:BB:CC:99" &&
+                uiState.recentBluetoothDeviceName == "YYC-DJ-V2-099"
+        }
+
+        assertEquals("AA:BB:CC:99", state.recentBluetoothDeviceId)
+        assertEquals("YYC-DJ-V2-099", state.recentBluetoothDeviceName)
+        assertEquals(
+            "YYC-DJ-V2-099 · AA:BB:CC:99",
+            state.recentBluetoothDeviceLabel,
+        )
+    }
 }
 
 private class FakeOutputBluetoothRepository(
     runtimeStatusFlow: MutableStateFlow<BluetoothRuntimeStatus>,
 ) : BluetoothRepository {
+    var mixModeEnabledValue: Boolean = false
     override val connectionState: StateFlow<BluetoothConnectionState> =
         MutableStateFlow(BluetoothConnectionState.CONNECTED)
     override val devices: StateFlow<List<BluetoothDevice>> =
@@ -162,7 +227,9 @@ private class FakeOutputBluetoothRepository(
 
     override suspend fun clearActiveWaveforms() = Unit
 
-    override fun setMixModeEnabled(enabled: Boolean) = Unit
+    override fun setMixModeEnabled(enabled: Boolean) {
+        mixModeEnabledValue = enabled
+    }
 }
 
 private class FakeOutputCommandSocketClient(

@@ -48,7 +48,7 @@ class BluetoothMixRuntime(
             ),
         ) ?: return null
 
-        val cap = if (leader.first.eventType == LiveEventType.GIFT) {
+        val cap = if (leader.first.eventType.isGiftFamily) {
             MixPolicy.GIFT_LEADER_CAP
         } else {
             MixPolicy.NORMAL_CAP

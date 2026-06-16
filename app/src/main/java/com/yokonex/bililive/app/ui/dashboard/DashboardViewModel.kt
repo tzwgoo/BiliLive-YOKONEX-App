@@ -11,6 +11,8 @@ import com.yokonex.bililive.data.storage.entity.EventLogEntity
 import com.yokonex.bililive.data.storage.SettingsStore
 import com.yokonex.bililive.data.websocket.CommandSocketClient
 import com.yokonex.bililive.data.websocket.CommandSocketState
+import com.yokonex.bililive.domain.model.LiveEventCategory
+import com.yokonex.bililive.domain.model.LiveEventType
 import com.yokonex.bililive.domain.model.OutputMode
 import com.yokonex.bililive.service.ServiceCoordinator
 import com.yokonex.bililive.service.ServiceStatus
@@ -244,15 +246,19 @@ internal fun normalizeEventTimestampMillis(timestamp: Long): Long =
 
 internal fun buildDashboardRecentEvents(logs: List<EventLogEntity>): List<UiEventLog> {
     val liveLogs = logs
-        .filter { log -> log.eventType in LIVE_EVENT_TYPES }
+        .filter { log ->
+            log.eventType.toLiveEventType()
+                ?.let { eventType -> eventType.category != LiveEventCategory.SYSTEM }
+                ?: false
+        }
         .sortedByDescending(EventLogEntity::createdAt)
     if (liveLogs.size <= DASHBOARD_RECENT_EVENT_LIMIT) {
         return liveLogs.map(::toDashboardEventLog)
     }
 
     val pinnedIds = buildSet {
-        PRIORITIZED_EVENT_TYPES.forEach { eventType ->
-            liveLogs.firstOrNull { log -> log.eventType == eventType }?.let { log ->
+        PRIORITIZED_EVENT_CATEGORIES.forEach { eventCategory ->
+            liveLogs.firstOrNull { log -> log.eventType.toLiveEventType()?.category == eventCategory }?.let { log ->
                 add(log.id)
             }
         }
@@ -269,14 +275,10 @@ internal fun buildDashboardRecentEvents(logs: List<EventLogEntity>): List<UiEven
 }
 
 internal fun buildDashboardEventSections(logs: List<EventLogEntity>): List<DashboardEventSection> =
-    DASHBOARD_SECTION_TYPES.map { eventType ->
-        val title = when (eventType) {
-            "GIFT" -> "礼物"
-            "LIKE" -> "点赞"
-            else -> "弹幕"
-        }
+    DASHBOARD_SECTION_CATEGORIES.map { eventCategory ->
+        val title = eventCategory.toSectionTitle()
         val typedLogs = logs
-            .filter { log -> log.eventType == eventType }
+            .filter { log -> log.eventType.toLiveEventType()?.category == eventCategory }
             .sortedByDescending(EventLogEntity::createdAt)
         DashboardEventSection(
             title = title,
@@ -288,10 +290,16 @@ internal fun buildDashboardEventSections(logs: List<EventLogEntity>): List<Dashb
     }
 
 private fun dashboardEventTitle(eventType: String): String =
-    when (eventType) {
-        "GIFT" -> "实时礼物"
-        "LIKE" -> "实时点赞"
-        "DANMAKU" -> "实时弹幕"
+    when (eventType.toLiveEventType()) {
+        LiveEventType.GIFT -> "实时礼物"
+        LiveEventType.SUPER_CHAT -> "实时醒目留言"
+        LiveEventType.GUARD_BUY -> "实时上舰"
+        LiveEventType.GUARD_RENEW -> "实时续费"
+        LiveEventType.LIKE -> "实时点赞"
+        LiveEventType.DANMAKU -> "实时弹幕"
+        LiveEventType.DANMAKU_CAPTAIN -> "实时舰长弹幕"
+        LiveEventType.DANMAKU_COMMANDER -> "实时提督弹幕"
+        LiveEventType.DANMAKU_GOVERNOR -> "实时总督弹幕"
         else -> "系统事件"
     }
 
@@ -299,6 +307,7 @@ private fun dashboardTriggerStatus(entity: EventLogEntity): String =
     when {
         entity.outputSuccess -> "已触发"
         entity.outputMessage == "cooldown_skipped" -> "冷却跳过"
+        entity.outputMessage == "user_limit_skipped" -> "限流跳过"
         entity.outputMessage == "no_matching_rule" -> "未命中"
         entity.outputMessage == "no_action_binding" -> "未绑定"
         else -> "输出失败"
@@ -319,9 +328,27 @@ private fun CommandSocketState.toDisplayLabel(): String =
         CommandSocketState.ERROR -> "连接异常"
     }
 
-private val LIVE_EVENT_TYPES = setOf("GIFT", "LIKE", "DANMAKU")
-private val DASHBOARD_SECTION_TYPES = listOf("GIFT", "LIKE", "DANMAKU")
-private val PRIORITIZED_EVENT_TYPES = listOf("GIFT", "LIKE", "DANMAKU")
+private fun String.toLiveEventType(): LiveEventType? =
+    runCatching { LiveEventType.valueOf(this) }.getOrNull()
+
+private fun LiveEventCategory.toSectionTitle(): String =
+    when (this) {
+        LiveEventCategory.GIFT -> "礼物"
+        LiveEventCategory.LIKE -> "点赞"
+        LiveEventCategory.DANMAKU -> "弹幕"
+        LiveEventCategory.SYSTEM -> "系统"
+    }
+
+private val DASHBOARD_SECTION_CATEGORIES = listOf(
+    LiveEventCategory.GIFT,
+    LiveEventCategory.LIKE,
+    LiveEventCategory.DANMAKU,
+)
+private val PRIORITIZED_EVENT_CATEGORIES = listOf(
+    LiveEventCategory.GIFT,
+    LiveEventCategory.LIKE,
+    LiveEventCategory.DANMAKU,
+)
 private const val DASHBOARD_RECENT_EVENT_LIMIT = 10
 private const val DASHBOARD_SECTION_EVENT_LIMIT = 4
 private const val DEFAULT_ANCHOR_NAME = "未获取主播名称"

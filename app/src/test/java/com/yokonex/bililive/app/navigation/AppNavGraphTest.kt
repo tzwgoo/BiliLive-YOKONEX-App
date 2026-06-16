@@ -11,12 +11,9 @@ class AppNavGraphTest {
 
         assertEquals(
             listOf(
-                NavigationItemSpec("dashboard", "状态", NavigationIcon.Dashboard),
-                NavigationItemSpec("live", "直播配置", NavigationIcon.Live),
-                NavigationItemSpec("output", "设备连接", NavigationIcon.Output),
-                NavigationItemSpec("rules", "规则配置", NavigationIcon.Rules),
+                NavigationItemSpec("dashboard", "主控台", NavigationIcon.Dashboard),
+                NavigationItemSpec("events", "事件配置", NavigationIcon.Events),
                 NavigationItemSpec("waveforms", "波形库", NavigationIcon.Waveforms),
-                NavigationItemSpec("logs", "日志", NavigationIcon.Logs),
             ),
             items,
         )

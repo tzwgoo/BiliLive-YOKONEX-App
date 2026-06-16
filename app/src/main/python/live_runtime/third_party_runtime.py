@@ -203,6 +203,7 @@ def map_third_party_message(message: dict[str, Any], *, room_id: int) -> dict[st
 
     if cmd in {"SEND_GIFT", "COMBO_SEND"}:
         data = _as_dict(message.get("data"))
+        guard_level = _resolve_gift_guard_level(data)
         return {
             "source": "third_party_ws",
             "event_type": "gift",
@@ -222,13 +223,19 @@ def map_third_party_message(message: dict[str, Any], *, room_id: int) -> dict[st
                     or data.get("r_price")
                     or data.get("price"),
                 ),
+                "guard_level": guard_level,
+                "guard_label": _guard_level_to_label(guard_level),
             },
         }
 
     if cmd == "GUARD_BUY":
         data = _as_dict(message.get("data"))
+        guard_level = _resolve_guard_level_from_name(
+            data.get("gift_name") or data.get("giftName") or data.get("role_name"),
+        )
         return _build_gift_event(
             cmd=cmd,
+            event_type="guard_buy",
             room_id=room_id,
             uname=str(data.get("username") or data.get("uname") or ""),
             timestamp=_as_int(data.get("start_time") or data.get("timestamp")),
@@ -238,6 +245,8 @@ def map_third_party_message(message: dict[str, Any], *, room_id: int) -> dict[st
                 "gift_num": _as_int(data.get("num") or 1),
                 "price": _as_int(data.get("price")),
                 "r_price": _as_int(data.get("price")),
+                "guard_level": guard_level,
+                "guard_label": _guard_level_to_label(guard_level),
             },
         )
 
@@ -249,6 +258,7 @@ def map_third_party_message(message: dict[str, Any], *, room_id: int) -> dict[st
         base_info = _as_dict(uinfo.get("base"))
         return _build_gift_event(
             cmd=cmd,
+            event_type="super_chat",
             room_id=room_id,
             uname=str(user_info.get("uname") or base_info.get("name") or base_info.get("uname") or ""),
             timestamp=_as_int(data.get("ts") or data.get("start_time") or data.get("send_time")),
@@ -259,13 +269,19 @@ def map_third_party_message(message: dict[str, Any], *, room_id: int) -> dict[st
                 "price": _as_int(data.get("price")),
                 "r_price": _as_int(data.get("price")),
                 "message": str(data.get("message") or ""),
+                "guard_level": 0,
+                "guard_label": "",
             },
         )
 
     if cmd == "USER_TOAST_MSG":
         data = _as_dict(message.get("data"))
+        guard_level = _resolve_guard_level_from_name(
+            data.get("gift_name") or data.get("giftName") or data.get("role_name"),
+        )
         return _build_gift_event(
             cmd=cmd,
+            event_type="guard_renew",
             room_id=room_id,
             uname=str(data.get("username") or data.get("uname") or ""),
             timestamp=_as_int(data.get("start_time") or data.get("timestamp")),
@@ -276,6 +292,8 @@ def map_third_party_message(message: dict[str, Any], *, room_id: int) -> dict[st
                 "price": _as_int(data.get("price")),
                 "r_price": _as_int(data.get("price")),
                 "toast_msg": str(data.get("toast_msg") or ""),
+                "guard_level": guard_level,
+                "guard_label": _guard_level_to_label(guard_level),
             },
         )
 
@@ -284,6 +302,7 @@ def map_third_party_message(message: dict[str, Any], *, room_id: int) -> dict[st
         content = ""
         uname = ""
         timestamp = _as_int(message.get("timestamp"))
+        guard_level = 0
         if isinstance(info, list):
             if len(info) > 1:
                 content = str(info[1] or "")
@@ -291,9 +310,10 @@ def map_third_party_message(message: dict[str, Any], *, room_id: int) -> dict[st
                 uname = str(info[2][1] or "")
             if len(info) > 0 and isinstance(info[0], list) and len(info[0]) > 4:
                 timestamp = _as_int(info[0][4])
+            guard_level = _extract_danmaku_guard_level(info)
         return {
             "source": "third_party_ws",
-            "event_type": "danmaku",
+            "event_type": _resolve_danmaku_event_type(guard_level),
             "cmd": cmd,
             "room_id": room_id,
             "open_id": "",
@@ -301,6 +321,8 @@ def map_third_party_message(message: dict[str, Any], *, room_id: int) -> dict[st
             "timestamp": timestamp,
             "payload": {
                 "msg": content,
+                "guard_level": guard_level,
+                "guard_label": _guard_level_to_label(guard_level),
             },
         }
 
@@ -328,6 +350,7 @@ def map_third_party_message(message: dict[str, Any], *, room_id: int) -> dict[st
 def _build_gift_event(
     *,
     cmd: str,
+    event_type: str,
     room_id: int,
     uname: str,
     timestamp: int,
@@ -335,7 +358,7 @@ def _build_gift_event(
 ) -> dict[str, Any]:
     return {
         "source": "third_party_ws",
-        "event_type": "gift",
+        "event_type": event_type,
         "cmd": cmd,
         "room_id": room_id,
         "open_id": "",
@@ -363,6 +386,74 @@ def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
     return {}
+
+
+def _extract_danmaku_guard_level(info: list[Any]) -> int:
+    try:
+        direct_guard_level = _as_int(info[7])
+        if direct_guard_level > 0:
+            return direct_guard_level
+    except (IndexError, TypeError):
+        pass
+
+    try:
+        medal_guard_level = _as_int(info[3][10])
+        if medal_guard_level > 0:
+            return medal_guard_level
+    except (IndexError, TypeError):
+        pass
+
+    try:
+        nested_medal = _as_dict(info[3][0])
+        return _as_int(nested_medal.get("guard_level"))
+    except (IndexError, TypeError):
+        return 0
+
+
+def _resolve_danmaku_event_type(guard_level: int) -> str:
+    # Android 端需要区分舰队弹幕类型，后续规则页才能按普通 / 舰长 / 提督 / 总督分别建规则。
+    return {
+        3: "danmaku_captain",
+        2: "danmaku_commander",
+        1: "danmaku_governor",
+    }.get(_as_int(guard_level), "danmaku")
+
+
+def _guard_level_to_label(guard_level: int) -> str:
+    return {
+        1: "总督",
+        2: "提督",
+        3: "舰长",
+    }.get(_as_int(guard_level), "")
+
+
+def _resolve_gift_guard_level(data: dict[str, Any]) -> int:
+    direct_level = _as_int(data.get("guard_level"))
+    if direct_level > 0:
+        return direct_level
+
+    medal_info = _as_dict(data.get("medal_info"))
+    medal_level = _as_int(medal_info.get("guard_level"))
+    if medal_level > 0:
+        return medal_level
+
+    uinfo = _as_dict(data.get("uinfo"))
+    uinfo_level = _as_int(uinfo.get("guard_level"))
+    if uinfo_level > 0:
+        return uinfo_level
+
+    return 0
+
+
+def _resolve_guard_level_from_name(value: Any) -> int:
+    normalized = str(value or "").strip()
+    if normalized == "总督":
+        return 1
+    if normalized == "提督":
+        return 2
+    if normalized == "舰长":
+        return 3
+    return 0
 
 
 def create_runtime() -> ThirdPartyRuntime:

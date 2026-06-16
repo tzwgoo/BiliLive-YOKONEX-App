@@ -66,30 +66,24 @@ class BilibiliDanmakuEventNormalizer(
         val timestamp = root.long("timestamp").takeIf { it > 0 } ?: timestampProvider()
         val cmd = normalizeCmd(root.string("cmd").ifEmpty { root.string("event_type") })
         val payload = root["payload"]?.jsonObject ?: JsonObject(emptyMap())
+        val mappedEventType = root.string("event_type")
 
-        return when (root.string("event_type")) {
-            "gift" -> {
-                val price = payload.int("price")
-                val giftNum = payload.intAny("gift_num", "giftNum", "num").coerceAtLeast(1)
-                val totalPrice = payload.intAny("r_price", "total_coin", "combo_total_coin").takeIf { it > 0 }
-                    ?: price * giftNum
-                LiveEvent(
-                    id = nextEventId(cmd),
-                    type = LiveEventType.GIFT,
-                    timestamp = timestamp,
-                    userId = userId,
-                    userName = userName,
-                    roomId = mappedRoomId,
-                    payload = EventPayload.GiftPayload(
-                        giftName = payload.stringAny("gift_name", "giftName").ifEmpty { "礼物" },
-                        giftNum = giftNum,
-                        price = price,
-                        totalPrice = totalPrice,
-                    ),
-                )
-            }
+        return when (resolveMappedEventType(mappedEventType, cmd)) {
+            LiveEventType.GIFT,
+            LiveEventType.SUPER_CHAT,
+            LiveEventType.GUARD_BUY,
+            LiveEventType.GUARD_RENEW,
+            -> mapMappedGiftFamilyEvent(
+                cmd = cmd,
+                eventType = resolveMappedEventType(mappedEventType, cmd),
+                mappedRoomId = mappedRoomId,
+                userId = userId,
+                userName = userName,
+                timestamp = timestamp,
+                payload = payload,
+            )
 
-            "like" -> LiveEvent(
+            LiveEventType.LIKE -> LiveEvent(
                 id = nextEventId(cmd),
                 type = LiveEventType.LIKE,
                 timestamp = timestamp,
@@ -103,19 +97,30 @@ class BilibiliDanmakuEventNormalizer(
                 ),
             )
 
-            "danmaku" -> LiveEvent(
-                id = nextEventId(cmd),
-                type = LiveEventType.DANMAKU,
-                timestamp = timestamp,
-                userId = userId,
-                userName = userName,
-                roomId = mappedRoomId,
-                payload = EventPayload.DanmakuPayload(
-                    message = payload.stringAny("msg", "message"),
-                ),
-            )
+            LiveEventType.DANMAKU,
+            LiveEventType.DANMAKU_CAPTAIN,
+            LiveEventType.DANMAKU_COMMANDER,
+            LiveEventType.DANMAKU_GOVERNOR,
+            -> {
+                val guardLevel = payload.intAny("guard_level", "guardLevel").coerceAtLeast(0)
+                LiveEvent(
+                    id = nextEventId(cmd),
+                    type = resolveMappedEventType(mappedEventType, cmd, guardLevel),
+                    timestamp = timestamp,
+                    userId = userId,
+                    userName = userName,
+                    roomId = mappedRoomId,
+                    payload = EventPayload.DanmakuPayload(
+                        message = payload.stringAny("msg", "message"),
+                        guardLevel = guardLevel,
+                        guardLabel = payload.stringAny("guard_label", "guardLabel").ifBlank {
+                            guardLevel.toGuardLabel()
+                        },
+                    ),
+                )
+            }
 
-            else -> LiveEvent(
+            LiveEventType.SYSTEM -> LiveEvent(
                 id = nextEventId(cmd),
                 type = LiveEventType.SYSTEM,
                 timestamp = timestamp,
@@ -140,18 +145,32 @@ class BilibiliDanmakuEventNormalizer(
         val giftNum = data.intAny("combo_num", "num", "gift_num").coerceAtLeast(1)
         val totalPrice = data.intAny("combo_total_coin", "total_coin", "r_price").takeIf { it > 0 }
             ?: price * giftNum
+        val guardLevel = data.resolveGiftGuardLevel()
+        val eventType = resolveRawGiftEventType(message.cmd)
         return LiveEvent(
             id = nextEventId(message.cmd),
-            type = LiveEventType.GIFT,
+            type = eventType,
             timestamp = data.longAny("timestamp", "start_time", "ts").takeIf { it > 0 } ?: timestampProvider(),
             userId = data.string("uid"),
             userName = data.stringAny("uname", "username"),
             roomId = roomId,
             payload = EventPayload.GiftPayload(
-                giftName = data.stringAny("gift_name", "giftName", "role_name").ifEmpty { "礼物" },
+                giftId = data.intAny("gift_id", "giftId"),
+                giftName = data.stringAny("gift_name", "giftName", "role_name").ifEmpty {
+                    eventType.displayLabel
+                },
                 giftNum = giftNum,
                 price = price,
                 totalPrice = totalPrice,
+                message = data.string("message"),
+                toastMessage = data.string("toast_msg"),
+                guardLevel = guardLevel,
+                guardLabel = resolveGuardLabel(
+                    eventType = eventType,
+                    explicitGuardLabel = data.stringAny("guard_label", "guardLabel"),
+                    fallbackRoleName = data.stringAny("role_name", "gift_name", "giftName"),
+                    guardLevel = guardLevel,
+                ),
             ),
         )
     }
@@ -178,15 +197,18 @@ class BilibiliDanmakuEventNormalizer(
         val content = message.info.stringAt(1)
         val userInfo = message.info.arrayAt(2)
         val infoHead = message.info.arrayAt(0)
+        val guardLevel = message.info.resolveDanmakuGuardLevel()
         return LiveEvent(
             id = nextEventId(message.cmd),
-            type = LiveEventType.DANMAKU,
+            type = guardLevel.toDanmakuEventType(),
             timestamp = infoHead.longAt(4).takeIf { it > 0 } ?: timestampProvider(),
             userId = userInfo.stringAt(0),
             userName = userInfo.stringAt(1),
             roomId = roomId,
             payload = EventPayload.DanmakuPayload(
                 message = content,
+                guardLevel = guardLevel,
+                guardLabel = guardLevel.toGuardLabel(),
             ),
         )
     }
@@ -204,6 +226,76 @@ class BilibiliDanmakuEventNormalizer(
 
     private fun nextEventId(prefix: String): String =
         "$prefix-${timestampProvider()}-${eventSequence.getAndIncrement()}"
+
+    // 这里统一兼容 Python 映射事件和原始 WS 事件，避免不同采集链路把 SC / 上舰语义压扁。
+    private fun resolveMappedEventType(
+        eventType: String,
+        cmd: String,
+        guardLevel: Int = 0,
+    ): LiveEventType =
+        when (eventType) {
+            "gift" -> resolveRawGiftEventType(cmd)
+            "super_chat" -> LiveEventType.SUPER_CHAT
+            "guard_buy" -> LiveEventType.GUARD_BUY
+            "guard_renew" -> LiveEventType.GUARD_RENEW
+            "like" -> LiveEventType.LIKE
+            "danmaku" -> guardLevel.toDanmakuEventType()
+            "danmaku_captain" -> LiveEventType.DANMAKU_CAPTAIN
+            "danmaku_commander" -> LiveEventType.DANMAKU_COMMANDER
+            "danmaku_governor" -> LiveEventType.DANMAKU_GOVERNOR
+            else -> LiveEventType.SYSTEM
+        }
+
+    private fun resolveRawGiftEventType(cmd: String): LiveEventType =
+        when (cmd) {
+            "SUPER_CHAT_MESSAGE",
+            "SUPER_CHAT_MESSAGE_JPN",
+            -> LiveEventType.SUPER_CHAT
+
+            "GUARD_BUY" -> LiveEventType.GUARD_BUY
+            "USER_TOAST_MSG" -> LiveEventType.GUARD_RENEW
+            else -> LiveEventType.GIFT
+        }
+
+    private fun mapMappedGiftFamilyEvent(
+        cmd: String,
+        eventType: LiveEventType,
+        mappedRoomId: String,
+        userId: String,
+        userName: String,
+        timestamp: Long,
+        payload: JsonObject,
+    ): LiveEvent {
+        val price = payload.int("price")
+        val giftNum = payload.intAny("gift_num", "giftNum", "num").coerceAtLeast(1)
+        val guardLevel = payload.intAny("guard_level", "guardLevel").coerceAtLeast(0)
+        val totalPrice = payload.intAny("r_price", "total_coin", "combo_total_coin").takeIf { it > 0 }
+            ?: price * giftNum
+        return LiveEvent(
+            id = nextEventId(cmd),
+            type = eventType,
+            timestamp = timestamp,
+            userId = userId,
+            userName = userName,
+            roomId = mappedRoomId,
+            payload = EventPayload.GiftPayload(
+                giftId = payload.intAny("gift_id", "giftId"),
+                giftName = payload.stringAny("gift_name", "giftName").ifEmpty { eventType.displayLabel },
+                giftNum = giftNum,
+                price = price,
+                totalPrice = totalPrice,
+                message = payload.string("message"),
+                toastMessage = payload.string("toast_msg"),
+                guardLevel = guardLevel,
+                guardLabel = resolveGuardLabel(
+                    eventType = eventType,
+                    explicitGuardLabel = payload.stringAny("guard_label", "guardLabel"),
+                    fallbackRoleName = payload.stringAny("gift_name", "giftName"),
+                    guardLevel = guardLevel,
+                ),
+            ),
+        )
+    }
 
     private fun JsonObject.string(key: String): String =
         this[key]?.jsonPrimitive?.content ?: ""
@@ -244,4 +336,62 @@ class BilibiliDanmakuEventNormalizer(
         this?.getOrNull(index)?.let { element ->
             runCatching { element.jsonArray }.getOrNull()
         }
+
+    private fun JsonObject.resolveGiftGuardLevel(): Int =
+        intAny("guard_level", "guardLevel").takeIf { it > 0 }
+            ?: runCatching {
+                this["medal_info"]?.jsonObject?.intAny("guard_level", "guardLevel")
+            }.getOrNull().takeIf { (it ?: 0) > 0 }
+            ?: runCatching {
+                this["uinfo"]?.jsonObject?.intAny("guard_level", "guardLevel")
+            }.getOrNull().takeIf { (it ?: 0) > 0 }
+            ?: 0
+
+    private fun JsonArray?.resolveDanmakuGuardLevel(): Int {
+        val directGuardLevel = longAt(7).toInt()
+        if (directGuardLevel > 0) {
+            return directGuardLevel
+        }
+        val medalInfo = arrayAt(3)
+        val medalGuardLevel = medalInfo.longAt(10).toInt()
+        if (medalGuardLevel > 0) {
+            return medalGuardLevel
+        }
+        val nestedMedalGuardLevel = medalInfo?.getOrNull(0)
+            ?.let { element -> runCatching { element.jsonObject }.getOrNull() }
+            ?.intAny("guard_level", "guardLevel")
+            ?: 0
+        return nestedMedalGuardLevel.coerceAtLeast(0)
+    }
+
+    private fun Int.toDanmakuEventType(): LiveEventType =
+        when (this) {
+            3 -> LiveEventType.DANMAKU_CAPTAIN
+            2 -> LiveEventType.DANMAKU_COMMANDER
+            1 -> LiveEventType.DANMAKU_GOVERNOR
+            else -> LiveEventType.DANMAKU
+        }
+
+    private fun Int.toGuardLabel(): String =
+        when (this) {
+            1 -> "总督"
+            2 -> "提督"
+            3 -> "舰长"
+            else -> ""
+        }
+
+    private fun resolveGuardLabel(
+        eventType: LiveEventType,
+        explicitGuardLabel: String,
+        fallbackRoleName: String,
+        guardLevel: Int,
+    ): String {
+        if (explicitGuardLabel.isNotBlank()) {
+            return explicitGuardLabel
+        }
+        if (eventType == LiveEventType.GUARD_BUY || eventType == LiveEventType.GUARD_RENEW) {
+            return fallbackRoleName.ifBlank { guardLevel.toGuardLabel() }
+        }
+        return guardLevel.toGuardLabel()
+    }
 }

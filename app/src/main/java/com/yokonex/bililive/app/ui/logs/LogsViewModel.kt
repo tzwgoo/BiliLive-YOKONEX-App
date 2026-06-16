@@ -7,6 +7,8 @@ import com.yokonex.bililive.app.ui.components.UiEventLog
 import com.yokonex.bililive.app.ui.dashboard.normalizeEventTimestampMillis
 import com.yokonex.bililive.data.storage.JsonEventLogStore
 import com.yokonex.bililive.data.storage.entity.EventLogEntity
+import com.yokonex.bililive.domain.model.LiveEventCategory
+import com.yokonex.bililive.domain.model.LiveEventType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -70,10 +72,10 @@ internal fun filterLogs(
 ): List<EventLogEntity> =
     when (filter) {
         LogEventFilter.ALL -> logs
-        LogEventFilter.GIFT -> logs.filter { it.eventType == "GIFT" }
-        LogEventFilter.LIKE -> logs.filter { it.eventType == "LIKE" }
-        LogEventFilter.DANMAKU -> logs.filter { it.eventType == "DANMAKU" }
-        LogEventFilter.SYSTEM -> logs.filter { it.eventType == "SYSTEM" }
+        LogEventFilter.GIFT -> logs.filter { it.eventType.toLiveEventType()?.category == LiveEventCategory.GIFT }
+        LogEventFilter.LIKE -> logs.filter { it.eventType.toLiveEventType()?.category == LiveEventCategory.LIKE }
+        LogEventFilter.DANMAKU -> logs.filter { it.eventType.toLiveEventType()?.category == LiveEventCategory.DANMAKU }
+        LogEventFilter.SYSTEM -> logs.filter { it.eventType.toLiveEventType()?.category == LiveEventCategory.SYSTEM }
     }
 
 private fun sampleLogEntities(): List<EventLogEntity> = listOf(
@@ -112,15 +114,23 @@ private fun sampleLogEntities(): List<EventLogEntity> = listOf(
     ),
 )
 
-private fun toUiEventLog(entity: EventLogEntity): UiEventLog {
-    val title = when (entity.eventType) {
-        "GIFT" -> "礼物事件"
-        "LIKE" -> "点赞事件"
-        "DANMAKU" -> "弹幕事件"
+internal fun toUiEventLog(entity: EventLogEntity): UiEventLog {
+    val title = when (entity.eventType.toLiveEventType()) {
+        LiveEventType.GIFT -> "礼物事件"
+        LiveEventType.SUPER_CHAT -> "醒目留言事件"
+        LiveEventType.GUARD_BUY -> "上舰事件"
+        LiveEventType.GUARD_RENEW -> "续费事件"
+        LiveEventType.LIKE -> "点赞事件"
+        LiveEventType.DANMAKU -> "弹幕事件"
+        LiveEventType.DANMAKU_CAPTAIN -> "舰长弹幕事件"
+        LiveEventType.DANMAKU_COMMANDER -> "提督弹幕事件"
+        LiveEventType.DANMAKU_GOVERNOR -> "总督弹幕事件"
         else -> "系统事件"
     }
     val statusLabel = when {
         entity.outputSuccess -> "成功"
+        entity.outputMessage == "cooldown_skipped" -> "冷却跳过"
+        entity.outputMessage == "user_limit_skipped" -> "限流跳过"
         entity.outputMessage == "no_matching_rule" -> "未命中"
         entity.outputMessage == "no_action_binding" -> "未绑定"
         else -> "失败"
@@ -141,3 +151,6 @@ private fun formatTimestamp(timestamp: Long): String {
     }
     return SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA).format(Date(normalizeEventTimestampMillis(timestamp)))
 }
+
+private fun String.toLiveEventType(): LiveEventType? =
+    runCatching { LiveEventType.valueOf(this) }.getOrNull()

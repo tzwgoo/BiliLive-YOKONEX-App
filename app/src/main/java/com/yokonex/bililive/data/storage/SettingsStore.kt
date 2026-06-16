@@ -34,6 +34,18 @@ class SettingsStore(
             preferences[RECENT_DEVICE_ID]
         }
 
+    val recentDeviceName: Flow<String?> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { preferences ->
+            preferences[RECENT_DEVICE_NAME]
+        }
+
+    val bluetoothMixModeEnabled: Flow<Boolean> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { preferences ->
+            preferences[BLUETOOTH_MIX_MODE_ENABLED]?.toBooleanStrictOrNull() ?: false
+        }
+
     val websocketEndpoint: Flow<String> = dataStore.data
         .catch { emit(emptyPreferences()) }
         .map { preferences ->
@@ -94,6 +106,22 @@ class SettingsStore(
         }
     }
 
+    suspend fun updateRecentDeviceName(deviceName: String?) {
+        dataStore.edit { preferences ->
+            if (deviceName.isNullOrBlank()) {
+                preferences.remove(RECENT_DEVICE_NAME)
+            } else {
+                preferences[RECENT_DEVICE_NAME] = deviceName.trim()
+            }
+        }
+    }
+
+    suspend fun updateBluetoothMixModeEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[BLUETOOTH_MIX_MODE_ENABLED] = enabled.toString()
+        }
+    }
+
     suspend fun updateWebSocketEndpoint(value: String) {
         dataStore.edit { preferences ->
             preferences[WEBSOCKET_ENDPOINT] = value.trim()
@@ -147,6 +175,9 @@ class SettingsStore(
             if (!preferences.contains(WEBSOCKET_TOKEN)) {
                 preferences[WEBSOCKET_TOKEN] = ""
             }
+            if (!preferences.contains(BLUETOOTH_MIX_MODE_ENABLED)) {
+                preferences[BLUETOOTH_MIX_MODE_ENABLED] = false.toString()
+            }
             if (!preferences.contains(RECONNECT_INTERVAL_SECONDS)) {
                 preferences[RECONNECT_INTERVAL_SECONDS] = "3"
             }
@@ -164,6 +195,8 @@ class SettingsStore(
         val ROOM_ID = stringPreferencesKey("room_id")
         val OUTPUT_MODE = stringPreferencesKey("output_mode")
         val RECENT_DEVICE_ID = stringPreferencesKey("recent_device_id")
+        val RECENT_DEVICE_NAME = stringPreferencesKey("recent_device_name")
+        val BLUETOOTH_MIX_MODE_ENABLED = stringPreferencesKey("bluetooth_mix_mode_enabled")
         val WEBSOCKET_ENDPOINT = stringPreferencesKey("websocket_endpoint")
         val WEBSOCKET_UID = stringPreferencesKey("websocket_uid")
         val WEBSOCKET_TOKEN = stringPreferencesKey("websocket_token")

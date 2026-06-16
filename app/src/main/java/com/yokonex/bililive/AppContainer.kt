@@ -29,6 +29,7 @@ import com.yokonex.bililive.data.waveform.WaveformLibraryRepository
 import com.yokonex.bililive.data.websocket.CommandSocketClient
 import com.yokonex.bililive.data.websocket.OkHttpCommandSocketClient
 import com.yokonex.bililive.domain.model.ActionBindings
+import com.yokonex.bililive.domain.model.CooldownScope
 import com.yokonex.bililive.domain.model.GiftTriggerMode
 import com.yokonex.bililive.domain.model.KeywordMatchMode
 import com.yokonex.bililive.domain.model.LiveEventType
@@ -158,7 +159,89 @@ private class SettingsGiftTriggerModeProvider(
 }
 
 private fun buildDefaultRules(): List<TriggerRule> {
-    val giftRules = (1..10).map { index ->
+    // 默认规则需要与桌面端的事件拆分保持一致，避免新事件回落到旧的通用规则后丢失独立配置能力。
+    return buildGiftTierRules() + listOf(
+        createGiftFamilyDefaultRule(
+            id = "super-chat-default",
+            name = "醒目留言默认规则",
+            eventType = LiveEventType.SUPER_CHAT,
+            waveformId = "ems-preset-06",
+            commandSlot = "command_six",
+            minPrice = 30,
+        ),
+        createGiftFamilyDefaultRule(
+            id = "guard-buy-default",
+            name = "上舰默认规则",
+            eventType = LiveEventType.GUARD_BUY,
+            waveformId = "ems-preset-08",
+            commandSlot = "command_eight",
+            minPrice = 138_000,
+        ),
+        createGiftFamilyDefaultRule(
+            id = "guard-renew-default",
+            name = "续费默认规则",
+            eventType = LiveEventType.GUARD_RENEW,
+            waveformId = "ems-preset-07",
+            commandSlot = "command_seven",
+            minPrice = 50_000,
+        ),
+        TriggerRule(
+            id = "like-default",
+            name = "点赞默认规则",
+            eventType = LiveEventType.LIKE,
+            conditions = RuleConditions(
+                likeMultiple = 100,
+            ),
+            actionBindings = ActionBindings(
+                bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-01"),
+                websocketAction = OutputAction.WebSocketCommandAction("command_one"),
+            ),
+        ),
+        TriggerRule(
+            id = "danmaku-default",
+            name = "弹幕默认规则",
+            enabled = false,
+            eventType = LiveEventType.DANMAKU,
+            cooldownSeconds = 0,
+            cooldownScope = CooldownScope.PER_USER,
+            conditions = RuleConditions(
+                keywords = emptyList(),
+                matchMode = KeywordMatchMode.ANY,
+            ),
+            actionBindings = ActionBindings(
+                bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-03"),
+                websocketAction = OutputAction.WebSocketCommandAction("command_three"),
+            ),
+        ),
+        createDanmakuGuardRule(
+            id = "danmaku-captain-default",
+            name = "舰长弹幕规则",
+            eventType = LiveEventType.DANMAKU_CAPTAIN,
+            minGuardLevel = 3,
+            waveformId = "ems-preset-04",
+            commandSlot = "command_four",
+        ),
+        createDanmakuGuardRule(
+            id = "danmaku-commander-default",
+            name = "提督弹幕规则",
+            eventType = LiveEventType.DANMAKU_COMMANDER,
+            minGuardLevel = 2,
+            waveformId = "ems-preset-05",
+            commandSlot = "command_five",
+        ),
+        createDanmakuGuardRule(
+            id = "danmaku-governor-default",
+            name = "总督弹幕规则",
+            eventType = LiveEventType.DANMAKU_GOVERNOR,
+            minGuardLevel = 1,
+            waveformId = "ems-preset-09",
+            commandSlot = "command_nine",
+        ),
+    )
+}
+
+private fun buildGiftTierRules(): List<TriggerRule> =
+    (1..10).map { index ->
         val slot = "command_${fixedSlotName(index)}"
         val presetId = "ems-preset-${index.toString().padStart(2, '0')}"
         val minPrice = when (index) {
@@ -193,43 +276,69 @@ private fun buildDefaultRules(): List<TriggerRule> {
                 minPrice = minPrice,
                 maxPrice = maxPrice,
             ),
-            actionBindings = ActionBindings(
-                bluetoothAction = OutputAction.BluetoothWaveformAction(presetId),
-                websocketAction = OutputAction.WebSocketCommandAction(slot),
+            actionBindings = createDefaultBindings(
+                waveformId = presetId,
+                commandSlot = slot,
             ),
         )
     }
 
-    return giftRules + listOf(
-        TriggerRule(
-            id = "like-default",
-            name = "点赞默认规则",
-            eventType = LiveEventType.LIKE,
-            conditions = RuleConditions(
-                likeMultiple = 100,
-            ),
-            actionBindings = ActionBindings(
-                bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-01"),
-                websocketAction = OutputAction.WebSocketCommandAction("command_one"),
-            ),
+private fun createGiftFamilyDefaultRule(
+    id: String,
+    name: String,
+    eventType: LiveEventType,
+    waveformId: String,
+    commandSlot: String,
+    minPrice: Int,
+): TriggerRule =
+    TriggerRule(
+        id = id,
+        name = name,
+        enabled = false,
+        eventType = eventType,
+        conditions = RuleConditions(
+            minPrice = minPrice,
         ),
-        TriggerRule(
-            id = "danmaku-default",
-            name = "弹幕默认规则",
-            enabled = false,
-            eventType = LiveEventType.DANMAKU,
-            cooldownSeconds = 0,
-            conditions = RuleConditions(
-                keywords = emptyList(),
-                matchMode = KeywordMatchMode.ANY,
-            ),
-            actionBindings = ActionBindings(
-                bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-03"),
-                websocketAction = OutputAction.WebSocketCommandAction("command_three"),
-            ),
+        actionBindings = createDefaultBindings(
+            waveformId = waveformId,
+            commandSlot = commandSlot,
         ),
     )
-}
+
+private fun createDanmakuGuardRule(
+    id: String,
+    name: String,
+    eventType: LiveEventType,
+    minGuardLevel: Int,
+    waveformId: String,
+    commandSlot: String,
+): TriggerRule =
+    TriggerRule(
+        id = id,
+        name = name,
+        enabled = false,
+        eventType = eventType,
+        // 舰队弹幕规则默认按用户冷却，避免同一位舰长连续发言把全房间触发都压住。
+        cooldownScope = CooldownScope.PER_USER,
+        conditions = RuleConditions(
+            minGuardLevel = minGuardLevel,
+            keywords = emptyList(),
+            matchMode = KeywordMatchMode.ANY,
+        ),
+        actionBindings = createDefaultBindings(
+            waveformId = waveformId,
+            commandSlot = commandSlot,
+        ),
+    )
+
+private fun createDefaultBindings(
+    waveformId: String,
+    commandSlot: String,
+): ActionBindings =
+    ActionBindings(
+        bluetoothAction = OutputAction.BluetoothWaveformAction(waveformId),
+        websocketAction = OutputAction.WebSocketCommandAction(commandSlot),
+    )
 
 private fun fixedSlotName(index: Int): String =
     when (index) {

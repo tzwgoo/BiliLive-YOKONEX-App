@@ -60,6 +60,7 @@ class DefaultBluetoothRepositoryTest {
 
         assertEquals(BluetoothConnectionState.CONNECTED, repository.connectionState.value)
         assertEquals("AA:BB:CC:01", settingsStore.recentDeviceId.first())
+        assertEquals("YYC-DJ-V2-001", settingsStore.recentDeviceName.first())
         assertArrayEquals(
             byteArrayOf(0x35, 0x71, 0x04, 0xAA.toByte()),
             bleManager.writes.first(),
@@ -283,6 +284,96 @@ class DefaultBluetoothRepositoryTest {
             ),
             bleManager.writes[1],
         )
+    }
+
+    @Test
+    fun persistedMixMode_isAppliedToRuntimeStatusAfterConnect() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("bt-repo", ".preferences_pb").toFile()
+            },
+        )
+        val settingsStore = SettingsStore(dataStore)
+        settingsStore.updateBluetoothMixModeEnabled(true)
+        val bleManager = FakeAndroidBleManager(
+            devices = listOf(
+                BluetoothDevice(
+                    id = "AA:BB:CC:05",
+                    name = "YYC-DJ-V2-005",
+                    protocol = "ems_v2",
+                ),
+            ),
+        )
+        val repository = DefaultBluetoothRepository(
+            bleManager = bleManager,
+            waveformDao = FakeWaveformDao(),
+            settingsStore = settingsStore,
+            waveformRuntime = EmsWaveformRuntime(bleManager, EmsProtocolEncoder()),
+            protocolEncoder = EmsProtocolEncoder(),
+        )
+
+        advanceUntilIdle()
+        repository.scan()
+        repository.connect("AA:BB:CC:05")
+
+        assertEquals(true, repository.runtimeStatus.value.mixModeEnabled)
+    }
+
+    @Test
+    fun disableMixMode_clearsMixedRuntimeSnapshot() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = {
+                Files.createTempFile("bt-repo", ".preferences_pb").toFile()
+            },
+        )
+        val waveform = WaveformDefinition(
+            id = "custom-wave",
+            name = "自定义波形",
+            builtin = false,
+            steps = listOf(
+                WaveformStep(
+                    durationMs = 120,
+                    channelA = 48,
+                    channelB = 24,
+                ),
+            ),
+        )
+        val bleManager = FakeAndroidBleManager(
+            devices = listOf(
+                BluetoothDevice(
+                    id = "AA:BB:CC:06",
+                    name = "YYC-DJ-V2-006",
+                    protocol = "ems_v2",
+                ),
+            ),
+        )
+        val repository = DefaultBluetoothRepository(
+            bleManager = bleManager,
+            waveformDao = FakeWaveformDao(
+                listOf(WaveformMapper.toEntity(waveform)),
+            ),
+            settingsStore = SettingsStore(dataStore),
+            waveformRuntime = EmsWaveformRuntime(bleManager, EmsProtocolEncoder()),
+            protocolEncoder = EmsProtocolEncoder(),
+        )
+
+        repository.scan()
+        repository.connect("AA:BB:CC:06")
+        repository.setMixModeEnabled(true)
+        repository.enqueueWaveform(
+            waveformId = "custom-wave",
+            eventType = LiveEventType.GIFT,
+            repeatCount = 1,
+        )
+
+        repository.setMixModeEnabled(false)
+
+        assertEquals(false, repository.runtimeStatus.value.mixModeEnabled)
+        assertEquals(0, repository.runtimeStatus.value.activeLayerCount)
+        assertEquals(0, repository.runtimeStatus.value.channelAStrength)
+        assertEquals(0, repository.runtimeStatus.value.channelBStrength)
     }
 }
 

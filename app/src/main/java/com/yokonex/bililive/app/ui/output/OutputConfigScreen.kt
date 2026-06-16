@@ -25,6 +25,7 @@ import com.yokonex.bililive.domain.model.OutputMode
 fun OutputConfigScreen(
     uiState: OutputConfigUiState,
     onOutputModeChange: (OutputMode) -> Unit,
+    onBluetoothMixModeChange: (Boolean) -> Unit,
     onSocketEndpointChange: (String) -> Unit,
     onSocketUidChange: (String) -> Unit,
     onSocketTokenChange: (String) -> Unit,
@@ -88,9 +89,38 @@ fun OutputConfigScreen(
                     supportingText = if (uiState.canDisconnectBluetooth) {
                         "设备 ${uiState.connectedBluetoothDeviceName} · 电量 $batteryLabel · 模式 ${uiState.bluetoothMixModeLabel} · 主层 ${uiState.bluetoothLeaderLabel.ifBlank { "无" }} · 层数 ${uiState.activeBluetoothLayerCount} · 上限 ${uiState.bluetoothOutputCapLabel} · A ${uiState.channelAStrength} · B ${uiState.channelBStrength}"
                     } else {
-                        "未连接"
+                        "未连接 · 最近设备 ${uiState.recentBluetoothDeviceLabel}"
                     },
                 )
+            }
+            item {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "蓝牙输出模式",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = "串行会完整播放单个波形，混波会按主层优先级叠加多路事件输出。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        FilterChip(
+                            selected = !uiState.bluetoothMixModeEnabled,
+                            onClick = { onBluetoothMixModeChange(false) },
+                            label = { Text("串行") },
+                        )
+                        FilterChip(
+                            selected = uiState.bluetoothMixModeEnabled,
+                            onClick = { onBluetoothMixModeChange(true) },
+                            label = { Text("混波") },
+                        )
+                    }
+                }
             }
             item {
                 Row(

@@ -39,12 +39,12 @@ jobs:
               "release.keystore",
               [Convert]::FromBase64String("${{ secrets.ANDROID_KEYSTORE_BASE64 }}")
             )
-            @"
-storeFile=release.keystore
-storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
-keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
-keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
-"@ | Set-Content -Path "keystore.properties" -Encoding UTF8
+            @(
+              "storeFile=release.keystore"
+              "storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}"
+              "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}"
+              "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}"
+            ) | Set-Content -Path "keystore.properties" -Encoding UTF8
           }
 
       - name: 构建 Release APK

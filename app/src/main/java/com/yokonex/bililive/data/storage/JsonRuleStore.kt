@@ -163,14 +163,94 @@ class JsonRuleStore(
                 else -> entity
             }
         }
+        val migratedSpecialPriceRules = migrateLegacySpecialPriceRules(
+            entities = normalized,
+            defaultRules = defaultRules,
+        )
         val merged = mergeMissingDefaultRules(
-            existingRules = normalized,
+            existingRules = migratedSpecialPriceRules,
             defaultRules = defaultRules,
         )
         if (merged != entities) {
             persist(merged)
         }
         return merged
+    }
+
+    private fun migrateLegacySpecialPriceRules(
+        entities: List<RuleEntity>,
+        defaultRules: List<RuleEntity>,
+    ): List<RuleEntity> {
+        var migrated = entities
+        migrated = migrateLegacySpecialPriceRule(
+            entities = migrated,
+            defaultRules = defaultRules,
+            legacyRuleId = "super-chat-default",
+            tierRuleIds = setOf(
+                "super-chat-tier-01",
+                "super-chat-tier-02",
+                "super-chat-tier-03",
+                "super-chat-tier-04",
+                "super-chat-tier-05",
+                "super-chat-tier-06",
+            ),
+        )
+        migrated = migrateLegacySpecialPriceRule(
+            entities = migrated,
+            defaultRules = defaultRules,
+            legacyRuleId = "guard-buy-default",
+            tierRuleIds = setOf(
+                "guard-buy-tier-01",
+                "guard-buy-tier-02",
+                "guard-buy-tier-03",
+            ),
+        )
+        migrated = migrateLegacySpecialPriceRule(
+            entities = migrated,
+            defaultRules = defaultRules,
+            legacyRuleId = "guard-renew-default",
+            tierRuleIds = setOf(
+                "guard-renew-tier-01",
+                "guard-renew-tier-02",
+                "guard-renew-tier-03",
+            ),
+        )
+        return migrated
+    }
+
+    private fun migrateLegacySpecialPriceRule(
+        entities: List<RuleEntity>,
+        defaultRules: List<RuleEntity>,
+        legacyRuleId: String,
+        tierRuleIds: Set<String>,
+    ): List<RuleEntity> {
+        val legacyRuleEntity = entities.firstOrNull { entity -> entity.id == legacyRuleId } ?: return entities
+        val defaultTierRules = defaultRules.filter { entity -> entity.id in tierRuleIds }
+        if (defaultTierRules.isEmpty()) {
+            return entities.filterNot { entity -> entity.id == legacyRuleId }
+        }
+        val existingTierIds = entities.map(RuleEntity::id).filter { id -> id in tierRuleIds }.toSet()
+        val legacyRule = RuleMapper.fromEntity(legacyRuleEntity)
+        val migratedTierRules = defaultTierRules
+            .filterNot { entity -> entity.id in existingTierIds }
+            .map { entity ->
+                val defaultRule = RuleMapper.fromEntity(entity)
+                RuleMapper.toEntity(
+                    defaultRule.copy(
+                        enabled = legacyRule.enabled,
+                        cooldownSeconds = legacyRule.cooldownSeconds,
+                        cooldownScope = legacyRule.cooldownScope,
+                        actionBindings = defaultRule.actionBindings.copy(
+                            bluetoothAction = legacyRule.actionBindings.bluetoothAction ?: defaultRule.actionBindings.bluetoothAction,
+                        ),
+                    ),
+                )
+            }
+        // 旧版本每类特殊金额事件只有一条兜底规则，这里迁成多档规则后需要移除旧 ID，
+        // 否则会与新的价格区间规则重叠，导致命中顺序不可控。
+        return entities
+            .filterNot { entity -> entity.id == legacyRuleId }
+            .plus(migratedTierRules)
     }
 
     private fun mergeMissingDefaultRules(

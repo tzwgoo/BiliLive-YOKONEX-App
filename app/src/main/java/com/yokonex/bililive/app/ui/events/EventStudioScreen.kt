@@ -85,8 +85,8 @@ fun EventStudioScreen(
     // 通用工作区统一承接点赞与弹幕两类公共事件，
     // IM / 蓝牙分栏只保留礼物族等独立事件，避免重复配置同一条业务链路。
     val workspaceRules = rulesState.rules.filter { !it.eventType.isSharedEventStudioRule() }
-    val likeSharedRule = rulesState.rules.firstOrNull { it.eventType.isLikeFamily }
-    val danmakuSharedRule = rulesState.rules.firstOrNull { it.eventType.isDanmakuFamily }
+    val likeSharedRule = rulesState.rules.firstOrNull { it.eventType == LiveEventType.LIKE }
+    val danmakuSharedRule = rulesState.rules.firstOrNull { it.eventType == LiveEventType.DANMAKU }
     // Android 端仍沿用统一 TriggerRule 存储，这里按工作区把同一批规则投影成桌面端的编辑视角。
     val imGroups = workspaceRules.groupBy { it.eventType }
     val bluetoothGroups = workspaceRules.groupBy { it.eventType }
@@ -1026,7 +1026,7 @@ private fun parseEventType(name: String): LiveEventType? =
     runCatching { LiveEventType.valueOf(name) }.getOrNull()
 
 private fun LiveEventType.isSharedEventStudioRule(): Boolean =
-    isLikeFamily || isDanmakuFamily
+    isLikeFamily || this == LiveEventType.DANMAKU
 
 private fun CooldownScope.toDisplayLabel(): String =
     when (this) {
@@ -1043,10 +1043,10 @@ private fun Int.toGuardLevelLabel(): String =
     }
 
 private fun List<UiRuleItem>.sortedForEventStudio(): List<UiRuleItem> {
-    if (isEmpty() || first().eventType != LiveEventType.GIFT) {
+    if (isEmpty() || first().eventType !in priceTierEventTypes) {
         return this
     }
-    // 礼物事件需要按固定槽位顺序展示，方便和桌面端的 command_one ~ command_ten 对齐。
+    // 金额档位类事件需要按固定槽位顺序展示，方便和桌面端的 command_one ~ command_ten 对齐。
     return withIndex()
         .sortedWith(
             compareBy<IndexedValue<UiRuleItem>>(
@@ -1071,6 +1071,13 @@ private fun String.toCommandSlotOrder(): Int =
         "command_ten" -> 10
         else -> Int.MAX_VALUE
     }
+
+private val priceTierEventTypes = setOf(
+    LiveEventType.GIFT,
+    LiveEventType.SUPER_CHAT,
+    LiveEventType.GUARD_BUY,
+    LiveEventType.GUARD_RENEW,
+)
 
 private const val SHARED_LIKE_KEY = "like"
 private const val SHARED_DANMAKU_KEY = "danmaku"

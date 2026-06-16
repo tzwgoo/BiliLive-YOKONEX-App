@@ -160,84 +160,62 @@ private class SettingsGiftTriggerModeProvider(
 
 private fun buildDefaultRules(): List<TriggerRule> {
     // 默认规则需要与桌面端的事件拆分保持一致，避免新事件回落到旧的通用规则后丢失独立配置能力。
-    return buildGiftTierRules() + listOf(
-        createGiftFamilyDefaultRule(
-            id = "super-chat-default",
-            name = "醒目留言默认规则",
-            eventType = LiveEventType.SUPER_CHAT,
-            waveformId = "ems-preset-06",
-            commandSlot = "command_six",
-            minPrice = 30,
-        ),
-        createGiftFamilyDefaultRule(
-            id = "guard-buy-default",
-            name = "上舰默认规则",
-            eventType = LiveEventType.GUARD_BUY,
-            waveformId = "ems-preset-08",
-            commandSlot = "command_eight",
-            minPrice = 138_000,
-        ),
-        createGiftFamilyDefaultRule(
-            id = "guard-renew-default",
-            name = "续费默认规则",
-            eventType = LiveEventType.GUARD_RENEW,
-            waveformId = "ems-preset-07",
-            commandSlot = "command_seven",
-            minPrice = 50_000,
-        ),
-        TriggerRule(
-            id = "like-default",
-            name = "点赞默认规则",
-            eventType = LiveEventType.LIKE,
-            conditions = RuleConditions(
-                likeMultiple = 100,
+    return buildGiftTierRules() +
+        buildSpecialPriceTierRules() +
+        listOf(
+            TriggerRule(
+                id = "like-default",
+                name = "点赞默认规则",
+                eventType = LiveEventType.LIKE,
+                conditions = RuleConditions(
+                    likeMultiple = 100,
+                ),
+                actionBindings = ActionBindings(
+                    bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-01"),
+                    websocketAction = OutputAction.WebSocketCommandAction("command_one"),
+                ),
             ),
-            actionBindings = ActionBindings(
-                bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-01"),
-                websocketAction = OutputAction.WebSocketCommandAction("command_one"),
+            TriggerRule(
+                id = "danmaku-default",
+                name = "弹幕默认规则",
+                enabled = false,
+                eventType = LiveEventType.DANMAKU,
+                cooldownSeconds = 0,
+                cooldownScope = CooldownScope.PER_USER,
+                conditions = RuleConditions(
+                    keywords = emptyList(),
+                    matchMode = KeywordMatchMode.ANY,
+                ),
+                actionBindings = ActionBindings(
+                    bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-03"),
+                    websocketAction = OutputAction.WebSocketCommandAction("command_three"),
+                ),
             ),
-        ),
-        TriggerRule(
-            id = "danmaku-default",
-            name = "弹幕默认规则",
-            enabled = false,
-            eventType = LiveEventType.DANMAKU,
-            cooldownSeconds = 0,
-            cooldownScope = CooldownScope.PER_USER,
-            conditions = RuleConditions(
-                keywords = emptyList(),
-                matchMode = KeywordMatchMode.ANY,
+            createDanmakuGuardRule(
+                id = "danmaku-captain-default",
+                name = "舰长弹幕规则",
+                eventType = LiveEventType.DANMAKU_CAPTAIN,
+                minGuardLevel = 3,
+                waveformId = "ems-preset-04",
+                commandSlot = "command_four",
             ),
-            actionBindings = ActionBindings(
-                bluetoothAction = OutputAction.BluetoothWaveformAction("ems-preset-03"),
-                websocketAction = OutputAction.WebSocketCommandAction("command_three"),
+            createDanmakuGuardRule(
+                id = "danmaku-commander-default",
+                name = "提督弹幕规则",
+                eventType = LiveEventType.DANMAKU_COMMANDER,
+                minGuardLevel = 2,
+                waveformId = "ems-preset-05",
+                commandSlot = "command_five",
             ),
-        ),
-        createDanmakuGuardRule(
-            id = "danmaku-captain-default",
-            name = "舰长弹幕规则",
-            eventType = LiveEventType.DANMAKU_CAPTAIN,
-            minGuardLevel = 3,
-            waveformId = "ems-preset-04",
-            commandSlot = "command_four",
-        ),
-        createDanmakuGuardRule(
-            id = "danmaku-commander-default",
-            name = "提督弹幕规则",
-            eventType = LiveEventType.DANMAKU_COMMANDER,
-            minGuardLevel = 2,
-            waveformId = "ems-preset-05",
-            commandSlot = "command_five",
-        ),
-        createDanmakuGuardRule(
-            id = "danmaku-governor-default",
-            name = "总督弹幕规则",
-            eventType = LiveEventType.DANMAKU_GOVERNOR,
-            minGuardLevel = 1,
-            waveformId = "ems-preset-09",
-            commandSlot = "command_nine",
-        ),
-    )
+            createDanmakuGuardRule(
+                id = "danmaku-governor-default",
+                name = "总督弹幕规则",
+                eventType = LiveEventType.DANMAKU_GOVERNOR,
+                minGuardLevel = 1,
+                waveformId = "ems-preset-09",
+                commandSlot = "command_nine",
+            ),
+        )
 }
 
 private fun buildGiftTierRules(): List<TriggerRule> =
@@ -283,27 +261,51 @@ private fun buildGiftTierRules(): List<TriggerRule> =
         )
     }
 
-private fun createGiftFamilyDefaultRule(
-    id: String,
-    name: String,
-    eventType: LiveEventType,
-    waveformId: String,
-    commandSlot: String,
-    minPrice: Int,
+private fun buildSpecialPriceTierRules(): List<TriggerRule> =
+    listOf(
+        SpecialPriceTierDefault("super-chat-tier-01", "醒目留言档位 01", LiveEventType.SUPER_CHAT, "ems-preset-01", "command_one", 30, 49),
+        SpecialPriceTierDefault("super-chat-tier-02", "醒目留言档位 02", LiveEventType.SUPER_CHAT, "ems-preset-02", "command_two", 50, 99),
+        SpecialPriceTierDefault("super-chat-tier-03", "醒目留言档位 03", LiveEventType.SUPER_CHAT, "ems-preset-03", "command_three", 100, 499),
+        SpecialPriceTierDefault("super-chat-tier-04", "醒目留言档位 04", LiveEventType.SUPER_CHAT, "ems-preset-04", "command_four", 500, 999),
+        SpecialPriceTierDefault("super-chat-tier-05", "醒目留言档位 05", LiveEventType.SUPER_CHAT, "ems-preset-05", "command_five", 1_000, 1_999),
+        SpecialPriceTierDefault("super-chat-tier-06", "醒目留言档位 06", LiveEventType.SUPER_CHAT, "ems-preset-06", "command_six", 2_000, null),
+        // Android 端当前只内置 10 组 EMS 预设，这里先按桌面端同档位的指令槽顺序
+        // 绑定现有预设，保证上舰/续费多档规则可以直接落地运行。
+        SpecialPriceTierDefault("guard-buy-tier-01", "上舰档位 01", LiveEventType.GUARD_BUY, "ems-preset-08", "command_eight", 100_000, 999_999),
+        SpecialPriceTierDefault("guard-buy-tier-02", "上舰档位 02", LiveEventType.GUARD_BUY, "ems-preset-09", "command_nine", 1_000_000, 9_999_999),
+        SpecialPriceTierDefault("guard-buy-tier-03", "上舰档位 03", LiveEventType.GUARD_BUY, "ems-preset-10", "command_ten", 10_000_000, null),
+        SpecialPriceTierDefault("guard-renew-tier-01", "续费档位 01", LiveEventType.GUARD_RENEW, "ems-preset-07", "command_seven", 50_000, 999_999),
+        SpecialPriceTierDefault("guard-renew-tier-02", "续费档位 02", LiveEventType.GUARD_RENEW, "ems-preset-08", "command_eight", 1_000_000, 9_999_999),
+        SpecialPriceTierDefault("guard-renew-tier-03", "续费档位 03", LiveEventType.GUARD_RENEW, "ems-preset-09", "command_nine", 10_000_000, null),
+    ).map(::createSpecialPriceTierRule)
+
+private fun createSpecialPriceTierRule(
+    definition: SpecialPriceTierDefault,
 ): TriggerRule =
     TriggerRule(
-        id = id,
-        name = name,
+        id = definition.id,
+        name = definition.name,
         enabled = false,
-        eventType = eventType,
+        eventType = definition.eventType,
         conditions = RuleConditions(
-            minPrice = minPrice,
+            minPrice = definition.minPrice,
+            maxPrice = definition.maxPrice,
         ),
         actionBindings = createDefaultBindings(
-            waveformId = waveformId,
-            commandSlot = commandSlot,
+            waveformId = definition.waveformId,
+            commandSlot = definition.commandSlot,
         ),
     )
+
+private data class SpecialPriceTierDefault(
+    val id: String,
+    val name: String,
+    val eventType: LiveEventType,
+    val waveformId: String,
+    val commandSlot: String,
+    val minPrice: Int,
+    val maxPrice: Int?,
+)
 
 private fun createDanmakuGuardRule(
     id: String,

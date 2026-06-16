@@ -33,19 +33,38 @@ jobs:
       - name: 写入签名配置
         shell: pwsh
         run: |
-          # 没有配置正式签名时自动回退到 debug 签名，保证 tag 发布链路先可用。
+          # 有正式签名时使用仓库 secrets；没有时在 CI 内生成一个临时 keystore，
+          # 避免 release 构建依赖 runner 本机默认 debug.keystore。
           if ("${{ secrets.ANDROID_KEYSTORE_BASE64 }}" -ne "") {
             [IO.File]::WriteAllBytes(
               "release.keystore",
               [Convert]::FromBase64String("${{ secrets.ANDROID_KEYSTORE_BASE64 }}")
             )
-            @(
-              "storeFile=release.keystore"
-              "storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}"
-              "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}"
-              "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}"
-            ) | Set-Content -Path "keystore.properties" -Encoding UTF8
+            $storePassword = "${{ secrets.ANDROID_STORE_PASSWORD }}"
+            $keyAlias = "${{ secrets.ANDROID_KEY_ALIAS }}"
+            $keyPassword = "${{ secrets.ANDROID_KEY_PASSWORD }}"
+          } else {
+            $storePassword = "android"
+            $keyAlias = "androiddebugkey"
+            $keyPassword = "android"
+            $keytool = Join-Path $env:JAVA_HOME "bin/keytool.exe"
+            & $keytool -genkeypair `
+              -v `
+              -keystore "release.keystore" `
+              -storepass $storePassword `
+              -alias $keyAlias `
+              -keypass $keyPassword `
+              -keyalg RSA `
+              -keysize 2048 `
+              -validity 10000 `
+              -dname "CN=Android Debug,O=Android,C=US"
           }
+          @(
+            "storeFile=release.keystore"
+            "storePassword=$storePassword"
+            "keyAlias=$keyAlias"
+            "keyPassword=$keyPassword"
+          ) | Set-Content -Path "keystore.properties" -Encoding UTF8
 
       - name: 构建 Release APK
         shell: pwsh

@@ -1,0 +1,61 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 安装 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: 写入签名配置
+        shell: pwsh
+        run: |
+          # 没有配置正式签名时自动回退到 debug 签名，保证 tag 发布链路先可用。
+          if ("${{ secrets.ANDROID_KEYSTORE_BASE64 }}" -ne "") {
+            [IO.File]::WriteAllBytes(
+              "release.keystore",
+              [Convert]::FromBase64String("${{ secrets.ANDROID_KEYSTORE_BASE64 }}")
+            )
+            @"
+storeFile=release.keystore
+storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+"@ | Set-Content -Path "keystore.properties" -Encoding UTF8
+          }
+
+      - name: 构建 Release APK
+        shell: pwsh
+        run: |
+          # Chaquopy 需要显式指定构建 Python，CI 上直接复用 setup-python 安装的解释器。
+          $env:CHAQUOPY_BUILD_PYTHON = (Get-Command python).Source
+          .\gradlew.bat assembleRelease
+
+      - name: 发布 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/app-release.apk
+          generate_release_notes: true

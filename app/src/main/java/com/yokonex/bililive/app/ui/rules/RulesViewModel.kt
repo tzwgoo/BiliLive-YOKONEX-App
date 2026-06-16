@@ -411,10 +411,13 @@ private fun toUiRuleItem(
         canEditKeywords = rule.eventType.isDanmakuFamily,
         canEditCooldownSeconds = rule.eventType != LiveEventType.SYSTEM,
         canEditCooldownScope = rule.eventType.isDanmakuFamily,
-        canEditMinGuardLevel = rule.eventType.isGiftFamily || rule.eventType.isDanmakuFamily,
+        // 最低舰队门槛只对弹幕类事件开放，礼物类事件不再展示这个限制项。
+        canEditMinGuardLevel = rule.eventType.isDanmakuFamily,
         canEditUserLimitWindowSeconds = rule.eventType.isDanmakuFamily,
         canEditUserLimitMaxTriggers = rule.eventType.isDanmakuFamily,
-        canEditGuardWaveforms = rule.eventType.isGiftFamily,
+        // 舰队专属波形目前只作用在主礼物档位规则上，SC / 上舰 / 续费等独立事件
+        // 仍然直接走自身主波形，不再展示这组不会实际生效的覆盖配置。
+        canEditGuardWaveforms = rule.eventType.supportsGuardWaveformOverrides(),
         minPriceText = rule.conditions.minPrice?.toString().orEmpty(),
         maxPriceText = rule.conditions.maxPrice?.toString().orEmpty(),
         likeMultipleText = rule.conditions.likeMultiple?.toString().orEmpty(),
@@ -463,11 +466,11 @@ private fun buildRuleSummary(rule: TriggerRule): String =
                 }
             }
         }
-        if (rule.conditions.minGuardLevel > 0) {
+        if (rule.eventType.isDanmakuFamily && rule.conditions.minGuardLevel > 0) {
             append("，最低舰队：")
             append(rule.conditions.minGuardLevel.toGuardLevelLabel())
         }
-        if (rule.actionBindings.guardWaveformIds.isNotEmpty()) {
+        if (rule.eventType.supportsGuardWaveformOverrides() && rule.actionBindings.guardWaveformIds.isNotEmpty()) {
             append("，舰队波形覆盖 ${rule.actionBindings.guardWaveformIds.size} 档")
         }
         if (rule.cooldownSeconds > 0) {
@@ -493,6 +496,9 @@ private fun Int.toGuardWaveformLabel(): String =
         3 -> "舰长"
         else -> "普通用户"
     }
+
+private fun LiveEventType.supportsGuardWaveformOverrides(): Boolean =
+    this == LiveEventType.GIFT
 
 private fun String.toFixedSlotLabel(): String =
     when (this) {

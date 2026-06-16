@@ -148,7 +148,7 @@ fun AppNavGraph() {
 }
 
 internal fun appNavigationItems(): List<NavigationItemSpec> = listOf(
-    NavigationItemSpec("dashboard", "主控台", NavigationIcon.Dashboard),
+    NavigationItemSpec("dashboard", "主页", NavigationIcon.Dashboard),
     NavigationItemSpec("events", "事件配置", NavigationIcon.Events),
     NavigationItemSpec("waveforms", "波形库", NavigationIcon.Waveforms),
 )

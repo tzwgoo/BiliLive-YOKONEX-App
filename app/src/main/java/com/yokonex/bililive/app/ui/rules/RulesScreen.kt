@@ -276,7 +276,7 @@ private fun GuardWaveformSection(
             style = MaterialTheme.typography.titleSmall,
         )
         Text(
-            text = "仅礼物类事件会按舰队等级优先选择这里的覆盖波形，留空则回退到规则主波形。",
+            text = "仅主礼物事件会按舰队等级优先选择这里的覆盖波形，留空则回退到规则主波形。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

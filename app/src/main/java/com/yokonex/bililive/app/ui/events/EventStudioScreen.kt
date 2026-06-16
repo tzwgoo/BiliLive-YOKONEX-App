@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.yokonex.bililive.app.ui.components.WorkspaceCard
-import com.yokonex.bililive.app.ui.components.WorkspaceMetricCard
 import com.yokonex.bililive.app.ui.components.WorkspacePageHeader
 import com.yokonex.bililive.app.ui.components.workspaceFilterChipColors
 import com.yokonex.bililive.app.ui.components.workspaceOutlinedTextFieldColors
@@ -73,15 +72,24 @@ fun EventStudioScreen(
     var activeTab by rememberSaveable { mutableStateOf(EventStudioTab.SHARED) }
     var selectedSharedKey by rememberSaveable { mutableStateOf(SHARED_LIKE_KEY) }
     var selectedImEventKey by rememberSaveable {
-        mutableStateOf(rulesState.rules.firstOrNull()?.eventType?.name.orEmpty())
+        mutableStateOf(
+            rulesState.rules.firstOrNull { !it.eventType.isSharedEventStudioRule() }?.eventType?.name.orEmpty(),
+        )
     }
     var selectedBluetoothEventKey by rememberSaveable {
-        mutableStateOf(rulesState.rules.firstOrNull()?.eventType?.name.orEmpty())
+        mutableStateOf(
+            rulesState.rules.firstOrNull { !it.eventType.isSharedEventStudioRule() }?.eventType?.name.orEmpty(),
+        )
     }
 
+    // 通用工作区统一承接点赞与弹幕两类公共事件，
+    // IM / 蓝牙分栏只保留礼物族等独立事件，避免重复配置同一条业务链路。
+    val workspaceRules = rulesState.rules.filter { !it.eventType.isSharedEventStudioRule() }
+    val likeSharedRule = rulesState.rules.firstOrNull { it.eventType.isLikeFamily }
+    val danmakuSharedRule = rulesState.rules.firstOrNull { it.eventType.isDanmakuFamily }
     // Android 端仍沿用统一 TriggerRule 存储，这里按工作区把同一批规则投影成桌面端的编辑视角。
-    val imGroups = rulesState.rules.groupBy { it.eventType }
-    val bluetoothGroups = rulesState.rules.groupBy { it.eventType }
+    val imGroups = workspaceRules.groupBy { it.eventType }
+    val bluetoothGroups = workspaceRules.groupBy { it.eventType }
 
     if (selectedImEventKey.isBlank() && imGroups.isNotEmpty()) {
         selectedImEventKey = imGroups.keys.first().name
@@ -104,8 +112,8 @@ fun EventStudioScreen(
         selectedBluetoothEventKey = bluetoothGroups.keys.first().name
     }
 
-    val currentImRules = imGroups[parseEventType(selectedImEventKey)] ?: emptyList()
-    val currentBluetoothRules = bluetoothGroups[parseEventType(selectedBluetoothEventKey)] ?: emptyList()
+    val currentImRules = (imGroups[parseEventType(selectedImEventKey)] ?: emptyList()).sortedForEventStudio()
+    val currentBluetoothRules = (bluetoothGroups[parseEventType(selectedBluetoothEventKey)] ?: emptyList()).sortedForEventStudio()
 
     BoxWithConstraints(
         modifier = Modifier
@@ -127,7 +135,8 @@ fun EventStudioScreen(
                         activeTab = activeTab,
                         selectedSharedKey = selectedSharedKey,
                         liveConfigState = liveConfigState,
-                        rulesState = rulesState,
+                        likeSharedRule = likeSharedRule,
+                        danmakuSharedRule = danmakuSharedRule,
                         currentImRules = currentImRules,
                         currentBluetoothRules = currentBluetoothRules,
                         onGiftTriggerModeChange = onGiftTriggerModeChange,
@@ -190,7 +199,8 @@ fun EventStudioScreen(
                     activeTab = activeTab,
                     selectedSharedKey = selectedSharedKey,
                     liveConfigState = liveConfigState,
-                    rulesState = rulesState,
+                    likeSharedRule = likeSharedRule,
+                    danmakuSharedRule = danmakuSharedRule,
                     currentImRules = currentImRules,
                     currentBluetoothRules = currentBluetoothRules,
                     onGiftTriggerModeChange = onGiftTriggerModeChange,
@@ -223,7 +233,8 @@ private fun LazyListScope.eventStudioContent(
     activeTab: EventStudioTab,
     selectedSharedKey: String,
     liveConfigState: LiveConfigUiState,
-    rulesState: RulesUiState,
+    likeSharedRule: UiRuleItem?,
+    danmakuSharedRule: UiRuleItem?,
     currentImRules: List<UiRuleItem>,
     currentBluetoothRules: List<UiRuleItem>,
     onGiftTriggerModeChange: (GiftTriggerMode) -> Unit,
@@ -250,62 +261,14 @@ private fun LazyListScope.eventStudioContent(
     item {
         WorkspacePageHeader(title = "事件配置")
     }
-    item {
-        BoxWithConstraints {
-            if (maxWidth < 560.dp) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    WorkspaceMetricCard(
-                        label = "IM 档位",
-                        value = rulesState.rules.size.toString(),
-                    )
-                    WorkspaceMetricCard(
-                        label = "蓝牙规则",
-                        value = rulesState.rules.count { it.selectedWaveformId.isNotBlank() }.toString(),
-                    )
-                    WorkspaceMetricCard(
-                        label = "可选波形",
-                        value = rulesState.rules.firstOrNull()?.waveformOptions?.size?.toString() ?: "0",
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    WorkspaceMetricCard(
-                        label = "IM 档位",
-                        value = rulesState.rules.size.toString(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    WorkspaceMetricCard(
-                        label = "蓝牙规则",
-                        value = rulesState.rules.count { it.selectedWaveformId.isNotBlank() }.toString(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    WorkspaceMetricCard(
-                        label = "可选波形",
-                        value = rulesState.rules.firstOrNull()?.waveformOptions?.size?.toString() ?: "0",
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        }
-    }
-    item {
-        WorkspaceCard {
-            Text(
-                text = "当前页面的改动会实时写回本地配置，结构和桌面端保持一致：通用参数单独维护，IM 和蓝牙规则按事件拆分编辑。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
     when (activeTab) {
         EventStudioTab.SHARED -> {
             item {
                 SharedSettingsEditor(
                     selectedSharedKey = selectedSharedKey,
                     liveConfigState = liveConfigState,
+                    likeSharedRule = likeSharedRule,
+                    danmakuSharedRule = danmakuSharedRule,
                     onGiftTriggerModeChange = onGiftTriggerModeChange,
                     onLikeMultipleChange = onLikeMultipleChange,
                     onDanmakuEnabledChange = onDanmakuEnabledChange,
@@ -314,6 +277,7 @@ private fun LazyListScope.eventStudioContent(
                     onDanmakuUserLimitWindowSecondsChange = onDanmakuUserLimitWindowSecondsChange,
                     onDanmakuUserLimitMaxTriggersChange = onDanmakuUserLimitMaxTriggersChange,
                     onDanmakuMinGuardLevelChange = onDanmakuMinGuardLevelChange,
+                    onBluetoothWaveformChange = onBluetoothWaveformChange,
                 )
             }
         }
@@ -407,13 +371,13 @@ private fun EventStudioSidebar(
             EventStudioTab.SHARED -> {
                 EventSidebarItem(
                     label = "点赞触发",
-                    description = "公共倍率与礼物触发模式",
+                    description = "公共倍率、礼物触发模式与蓝牙波形",
                     selected = selectedSharedKey == SHARED_LIKE_KEY,
                     onClick = { onSelectShared(SHARED_LIKE_KEY) },
                 )
                 EventSidebarItem(
                     label = "弹幕触发",
-                    description = "关键词、冷却、限流与舰队门槛",
+                    description = "关键词、波形、冷却、限流与舰队门槛",
                     selected = selectedSharedKey == SHARED_DANMAKU_KEY,
                     onClick = { onSelectShared(SHARED_DANMAKU_KEY) },
                 )
@@ -486,6 +450,8 @@ private fun EventSidebarItem(
 private fun SharedSettingsEditor(
     selectedSharedKey: String,
     liveConfigState: LiveConfigUiState,
+    likeSharedRule: UiRuleItem?,
+    danmakuSharedRule: UiRuleItem?,
     onGiftTriggerModeChange: (GiftTriggerMode) -> Unit,
     onLikeMultipleChange: (String) -> Unit,
     onDanmakuEnabledChange: (Boolean) -> Unit,
@@ -494,115 +460,133 @@ private fun SharedSettingsEditor(
     onDanmakuUserLimitWindowSecondsChange: (String) -> Unit,
     onDanmakuUserLimitMaxTriggersChange: (String) -> Unit,
     onDanmakuMinGuardLevelChange: (Int) -> Unit,
+    onBluetoothWaveformChange: (String, String) -> Unit,
 ) {
     when (selectedSharedKey) {
         SHARED_DANMAKU_KEY -> {
             WorkspaceCard {
                 BoxWithConstraints {
                     val compact = maxWidth < 620.dp
-                    Text(
-                        text = "弹幕触发配置",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Row(
+                    // 通用弹幕配置在手机端也需要顺序纵排，否则 Box 会把标题、
+                    // 开关和输入框压在同一层，造成说明文案与控件重叠。
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text("触发开关", style = MaterialTheme.typography.labelLarge)
-                        Switch(
-                            checked = liveConfigState.danmakuEnabled,
-                            onCheckedChange = onDanmakuEnabledChange,
-                            colors = workspaceSwitchColors(),
+                        Text(
+                            text = "弹幕触发配置",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("触发开关", style = MaterialTheme.typography.labelLarge)
+                            Switch(
+                                checked = liveConfigState.danmakuEnabled,
+                                onCheckedChange = onDanmakuEnabledChange,
+                                colors = workspaceSwitchColors(),
+                            )
+                        }
+                        if (compact) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                OutlinedTextField(
+                                    value = liveConfigState.danmakuCooldownSeconds,
+                                    onValueChange = onDanmakuCooldownSecondsChange,
+                                    label = { Text("弹幕冷却秒数") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    colors = workspaceOutlinedTextFieldColors(),
+                                )
+                                OutlinedTextField(
+                                    value = liveConfigState.danmakuUserLimitWindowSeconds,
+                                    onValueChange = onDanmakuUserLimitWindowSecondsChange,
+                                    label = { Text("每用户限流窗口") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    colors = workspaceOutlinedTextFieldColors(),
+                                )
+                                OutlinedTextField(
+                                    value = liveConfigState.danmakuUserLimitMaxTriggers,
+                                    onValueChange = onDanmakuUserLimitMaxTriggersChange,
+                                    label = { Text("窗口内最大触发次数") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    colors = workspaceOutlinedTextFieldColors(),
+                                )
+                                GuardLevelField(
+                                    selectedLevel = liveConfigState.danmakuMinGuardLevel,
+                                    onLevelSelected = onDanmakuMinGuardLevelChange,
+                                    label = "最低舰队等级",
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                OutlinedTextField(
+                                    value = liveConfigState.danmakuCooldownSeconds,
+                                    onValueChange = onDanmakuCooldownSecondsChange,
+                                    label = { Text("弹幕冷却秒数") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    colors = workspaceOutlinedTextFieldColors(),
+                                )
+                                OutlinedTextField(
+                                    value = liveConfigState.danmakuUserLimitWindowSeconds,
+                                    onValueChange = onDanmakuUserLimitWindowSecondsChange,
+                                    label = { Text("每用户限流窗口") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    colors = workspaceOutlinedTextFieldColors(),
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                OutlinedTextField(
+                                    value = liveConfigState.danmakuUserLimitMaxTriggers,
+                                    onValueChange = onDanmakuUserLimitMaxTriggersChange,
+                                    label = { Text("窗口内最大触发次数") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    colors = workspaceOutlinedTextFieldColors(),
+                                )
+                                GuardLevelField(
+                                    selectedLevel = liveConfigState.danmakuMinGuardLevel,
+                                    onLevelSelected = onDanmakuMinGuardLevelChange,
+                                    label = "最低舰队等级",
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = liveConfigState.danmakuKeywords,
+                            onValueChange = onDanmakuKeywordsChange,
+                            label = { Text("弹幕关键词") },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = workspaceOutlinedTextFieldColors(),
+                        )
+                        danmakuSharedRule?.let { rule ->
+                            // 弹幕属于通用事件，但蓝牙模式仍然需要落到具体波形，
+                            // 这里直接复用同一条 TriggerRule 的蓝牙绑定，避免 IM/蓝牙页重复维护。
+                            StudioDropdownField(
+                                label = "蓝牙波形",
+                                selectedValue = rule.waveformOptions.firstOrNull { it.id == rule.selectedWaveformId }?.name ?: "未配置波形",
+                                options = listOf("未配置波形" to "") + rule.waveformOptions.map { option -> option.name to option.id },
+                                onSelected = { waveformId -> onBluetoothWaveformChange(rule.id, waveformId) },
+                            )
+                        }
+                        Text(
+                            text = "弹幕关键词命中后，会复用当前保存的通用规则同时驱动 IM 和蓝牙事件链路。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (compact) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OutlinedTextField(
-                                value = liveConfigState.danmakuCooldownSeconds,
-                                onValueChange = onDanmakuCooldownSecondsChange,
-                                label = { Text("弹幕冷却秒数") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                colors = workspaceOutlinedTextFieldColors(),
-                            )
-                            OutlinedTextField(
-                                value = liveConfigState.danmakuUserLimitWindowSeconds,
-                                onValueChange = onDanmakuUserLimitWindowSecondsChange,
-                                label = { Text("每用户限流窗口") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                colors = workspaceOutlinedTextFieldColors(),
-                            )
-                            OutlinedTextField(
-                                value = liveConfigState.danmakuUserLimitMaxTriggers,
-                                onValueChange = onDanmakuUserLimitMaxTriggersChange,
-                                label = { Text("窗口内最大触发次数") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                colors = workspaceOutlinedTextFieldColors(),
-                            )
-                            GuardLevelField(
-                                selectedLevel = liveConfigState.danmakuMinGuardLevel,
-                                onLevelSelected = onDanmakuMinGuardLevelChange,
-                                label = "最低舰队等级",
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            OutlinedTextField(
-                                value = liveConfigState.danmakuCooldownSeconds,
-                                onValueChange = onDanmakuCooldownSecondsChange,
-                                label = { Text("弹幕冷却秒数") },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                colors = workspaceOutlinedTextFieldColors(),
-                            )
-                            OutlinedTextField(
-                                value = liveConfigState.danmakuUserLimitWindowSeconds,
-                                onValueChange = onDanmakuUserLimitWindowSecondsChange,
-                                label = { Text("每用户限流窗口") },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                colors = workspaceOutlinedTextFieldColors(),
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            OutlinedTextField(
-                                value = liveConfigState.danmakuUserLimitMaxTriggers,
-                                onValueChange = onDanmakuUserLimitMaxTriggersChange,
-                                label = { Text("窗口内最大触发次数") },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                colors = workspaceOutlinedTextFieldColors(),
-                            )
-                            GuardLevelField(
-                                selectedLevel = liveConfigState.danmakuMinGuardLevel,
-                                onLevelSelected = onDanmakuMinGuardLevelChange,
-                                label = "最低舰队等级",
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                    OutlinedTextField(
-                        value = liveConfigState.danmakuKeywords,
-                        onValueChange = onDanmakuKeywordsChange,
-                        label = { Text("弹幕关键词") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = workspaceOutlinedTextFieldColors(),
-                    )
-                    Text(
-                        text = "弹幕关键词命中后，会复用当前保存的通用规则同时驱动 IM 和蓝牙事件链路。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
@@ -635,6 +619,14 @@ private fun SharedSettingsEditor(
                     singleLine = true,
                     colors = workspaceOutlinedTextFieldColors(),
                 )
+                likeSharedRule?.let { rule ->
+                    StudioDropdownField(
+                        label = "蓝牙波形",
+                        selectedValue = rule.waveformOptions.firstOrNull { it.id == rule.selectedWaveformId }?.name ?: "未配置波形",
+                        options = listOf("未配置波形" to "") + rule.waveformOptions.map { option -> option.name to option.id },
+                        onSelected = { waveformId -> onBluetoothWaveformChange(rule.id, waveformId) },
+                    )
+                }
                 Text(
                     text = "该配置会同时影响 IM 指令和蓝牙触发链路。",
                     style = MaterialTheme.typography.bodySmall,
@@ -678,249 +670,256 @@ private fun EventRuleEditorCard(
     WorkspaceCard {
         BoxWithConstraints {
             val compact = maxWidth < 620.dp
-            Row(
+            // 规则编辑项需要按列顺序展开，否则 Box 会把所有表单控件叠在同一层，
+            // 手机窄屏下就会出现标题、输入框和开关互相覆盖的问题。
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.weight(1f),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = rule.name,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = rule.summary,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = rule.enabled,
-                    onCheckedChange = { onRuleToggle(rule.id) },
-                    colors = workspaceSwitchColors(),
-                )
-            }
-
-            if (mode == RuleEditorMode.IM) {
-                StudioDropdownField(
-                    label = "指令槽位",
-                    selectedValue = rule.imSlotLabel.ifBlank { "未绑定固定槽位" },
-                    options = rule.commandSlotOptions.map { option -> option.label to option.id },
-                    onSelected = { optionId -> onWebsocketSlotChange(rule.id, optionId) },
-                )
-            } else {
-                StudioDropdownField(
-                    label = "EMS 波形",
-                    selectedValue = rule.waveformOptions.firstOrNull { it.id == rule.selectedWaveformId }?.name ?: "未配置波形",
-                    options = rule.waveformOptions.map { option -> option.name to option.id },
-                    onSelected = { optionId -> onBluetoothWaveformChange(rule.id, optionId) },
-                )
-                Text(
-                    text = rule.actionLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-
-            if (rule.canEditGiftPriceRange) {
-                if (compact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(
-                            value = minPriceText,
-                            onValueChange = { value ->
-                                minPriceText = value.filter(Char::isDigit)
-                                onGiftPriceRangeChange(rule.id, minPriceText, maxPriceText)
-                            },
-                            label = { Text("最低价格") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            colors = workspaceOutlinedTextFieldColors(),
-                        )
-                        OutlinedTextField(
-                            value = maxPriceText,
-                            onValueChange = { value ->
-                                maxPriceText = value.filter(Char::isDigit)
-                                onGiftPriceRangeChange(rule.id, minPriceText, maxPriceText)
-                            },
-                            label = { Text("最高价格") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            colors = workspaceOutlinedTextFieldColors(),
-                        )
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.weight(1f),
                     ) {
-                        OutlinedTextField(
-                            value = minPriceText,
-                            onValueChange = { value ->
-                                minPriceText = value.filter(Char::isDigit)
-                                onGiftPriceRangeChange(rule.id, minPriceText, maxPriceText)
-                            },
-                            label = { Text("最低价格") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            colors = workspaceOutlinedTextFieldColors(),
+                        Text(
+                            text = rule.name,
+                            style = MaterialTheme.typography.titleMedium,
                         )
-                        OutlinedTextField(
-                            value = maxPriceText,
-                            onValueChange = { value ->
-                                maxPriceText = value.filter(Char::isDigit)
-                                onGiftPriceRangeChange(rule.id, minPriceText, maxPriceText)
-                            },
-                            label = { Text("最高价格") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            colors = workspaceOutlinedTextFieldColors(),
+                        Text(
+                            text = rule.summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    Switch(
+                        checked = rule.enabled,
+                        onCheckedChange = { onRuleToggle(rule.id) },
+                        colors = workspaceSwitchColors(),
+                    )
                 }
-            }
 
-            if (rule.canEditLikeMultiple) {
+                if (mode == RuleEditorMode.IM) {
+                    StudioDropdownField(
+                        label = "指令槽位",
+                        selectedValue = rule.imSlotLabel.ifBlank { "未绑定固定槽位" },
+                        options = rule.commandSlotOptions.map { option -> option.label to option.id },
+                        onSelected = { optionId -> onWebsocketSlotChange(rule.id, optionId) },
+                    )
+                } else {
+                    StudioDropdownField(
+                        label = "EMS 波形",
+                        selectedValue = rule.waveformOptions.firstOrNull { it.id == rule.selectedWaveformId }?.name ?: "未配置波形",
+                        options = rule.waveformOptions.map { option -> option.name to option.id },
+                        onSelected = { optionId -> onBluetoothWaveformChange(rule.id, optionId) },
+                    )
+                    Text(
+                        text = rule.actionLabel,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                if (rule.canEditGiftPriceRange) {
+                    if (compact) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(
+                                value = minPriceText,
+                                onValueChange = { value ->
+                                    minPriceText = value.filter(Char::isDigit)
+                                    onGiftPriceRangeChange(rule.id, minPriceText, maxPriceText)
+                                },
+                                label = { Text("最低价格") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = workspaceOutlinedTextFieldColors(),
+                            )
+                            OutlinedTextField(
+                                value = maxPriceText,
+                                onValueChange = { value ->
+                                    maxPriceText = value.filter(Char::isDigit)
+                                    onGiftPriceRangeChange(rule.id, minPriceText, maxPriceText)
+                                },
+                                label = { Text("最高价格") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = workspaceOutlinedTextFieldColors(),
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            OutlinedTextField(
+                                value = minPriceText,
+                                onValueChange = { value ->
+                                    minPriceText = value.filter(Char::isDigit)
+                                    onGiftPriceRangeChange(rule.id, minPriceText, maxPriceText)
+                                },
+                                label = { Text("最低价格") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                colors = workspaceOutlinedTextFieldColors(),
+                            )
+                            OutlinedTextField(
+                                value = maxPriceText,
+                                onValueChange = { value ->
+                                    maxPriceText = value.filter(Char::isDigit)
+                                    onGiftPriceRangeChange(rule.id, minPriceText, maxPriceText)
+                                },
+                                label = { Text("最高价格") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                colors = workspaceOutlinedTextFieldColors(),
+                            )
+                        }
+                    }
+                }
+
+                if (rule.canEditLikeMultiple) {
+                    OutlinedTextField(
+                        value = likeMultipleText,
+                        onValueChange = { value ->
+                            likeMultipleText = value.filter(Char::isDigit)
+                            onLikeMultipleChange(rule.id, likeMultipleText)
+                        },
+                        label = { Text("点赞倍率") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = workspaceOutlinedTextFieldColors(),
+                    )
+                }
+
+                if (rule.canEditKeywords) {
+                    OutlinedTextField(
+                        value = keywordsText,
+                        onValueChange = { value ->
+                            keywordsText = value
+                            onKeywordsChange(rule.id, keywordsText)
+                        },
+                        label = { Text("关键词（逗号分隔）") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = workspaceOutlinedTextFieldColors(),
+                    )
+                }
+
                 OutlinedTextField(
-                    value = likeMultipleText,
+                    value = cooldownText,
                     onValueChange = { value ->
-                        likeMultipleText = value.filter(Char::isDigit)
-                        onLikeMultipleChange(rule.id, likeMultipleText)
+                        cooldownText = value.filter(Char::isDigit)
+                        onCooldownSecondsChange(rule.id, cooldownText)
                     },
-                    label = { Text("点赞倍率") },
+                    label = { Text("冷却秒数") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     colors = workspaceOutlinedTextFieldColors(),
                 )
-            }
 
-            if (rule.canEditKeywords) {
-                OutlinedTextField(
-                    value = keywordsText,
-                    onValueChange = { value ->
-                        keywordsText = value
-                        onKeywordsChange(rule.id, keywordsText)
-                    },
-                    label = { Text("关键词（逗号分隔）") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = workspaceOutlinedTextFieldColors(),
-                )
-            }
+                if (rule.canEditCooldownScope) {
+                    StudioDropdownField(
+                        label = "冷却范围",
+                        selectedValue = rule.cooldownScope.toDisplayLabel(),
+                        options = CooldownScope.entries.map { option -> option.toDisplayLabel() to option.name },
+                        onSelected = { optionName ->
+                            CooldownScope.entries.firstOrNull { it.name == optionName }?.let { scope ->
+                                onCooldownScopeChange(rule.id, scope)
+                            }
+                        },
+                    )
+                }
 
-            OutlinedTextField(
-                value = cooldownText,
-                onValueChange = { value ->
-                    cooldownText = value.filter(Char::isDigit)
-                    onCooldownSecondsChange(rule.id, cooldownText)
-                },
-                label = { Text("冷却秒数") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                colors = workspaceOutlinedTextFieldColors(),
-            )
+                if (rule.canEditMinGuardLevel) {
+                    GuardLevelField(
+                        selectedLevel = rule.minGuardLevel,
+                        onLevelSelected = { level -> onMinGuardLevelChange(rule.id, level) },
+                        label = "最低舰队等级",
+                    )
+                }
 
-            if (rule.canEditCooldownScope) {
-                StudioDropdownField(
-                    label = "冷却范围",
-                    selectedValue = rule.cooldownScope.toDisplayLabel(),
-                    options = CooldownScope.entries.map { option -> option.toDisplayLabel() to option.name },
-                    onSelected = { optionName ->
-                        CooldownScope.entries.firstOrNull { it.name == optionName }?.let { scope ->
-                            onCooldownScopeChange(rule.id, scope)
+                if (rule.canEditUserLimitWindowSeconds || rule.canEditUserLimitMaxTriggers) {
+                    if (compact) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (rule.canEditUserLimitWindowSeconds) {
+                                OutlinedTextField(
+                                    value = userWindowText,
+                                    onValueChange = { value ->
+                                        userWindowText = value.filter(Char::isDigit)
+                                        onUserLimitWindowSecondsChange(rule.id, userWindowText)
+                                    },
+                                    label = { Text("每用户限流窗口") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    colors = workspaceOutlinedTextFieldColors(),
+                                )
+                            }
+                            if (rule.canEditUserLimitMaxTriggers) {
+                                OutlinedTextField(
+                                    value = userMaxText,
+                                    onValueChange = { value ->
+                                        userMaxText = value.filter(Char::isDigit)
+                                        onUserLimitMaxTriggersChange(rule.id, userMaxText)
+                                    },
+                                    label = { Text("窗口内最大次数") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    colors = workspaceOutlinedTextFieldColors(),
+                                )
+                            }
                         }
-                    },
-                )
-            }
-
-            if (rule.canEditMinGuardLevel) {
-                GuardLevelField(
-                    selectedLevel = rule.minGuardLevel,
-                    onLevelSelected = { level -> onMinGuardLevelChange(rule.id, level) },
-                    label = "最低舰队等级",
-                )
-            }
-
-            if (rule.canEditUserLimitWindowSeconds || rule.canEditUserLimitMaxTriggers) {
-                if (compact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (rule.canEditUserLimitWindowSeconds) {
-                            OutlinedTextField(
-                                value = userWindowText,
-                                onValueChange = { value ->
-                                    userWindowText = value.filter(Char::isDigit)
-                                    onUserLimitWindowSecondsChange(rule.id, userWindowText)
-                                },
-                                label = { Text("每用户限流窗口") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                colors = workspaceOutlinedTextFieldColors(),
-                            )
-                        }
-                        if (rule.canEditUserLimitMaxTriggers) {
-                            OutlinedTextField(
-                                value = userMaxText,
-                                onValueChange = { value ->
-                                    userMaxText = value.filter(Char::isDigit)
-                                    onUserLimitMaxTriggersChange(rule.id, userMaxText)
-                                },
-                                label = { Text("窗口内最大次数") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                colors = workspaceOutlinedTextFieldColors(),
-                            )
-                        }
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        if (rule.canEditUserLimitWindowSeconds) {
-                            OutlinedTextField(
-                                value = userWindowText,
-                                onValueChange = { value ->
-                                    userWindowText = value.filter(Char::isDigit)
-                                    onUserLimitWindowSecondsChange(rule.id, userWindowText)
-                                },
-                                label = { Text("每用户限流窗口") },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                colors = workspaceOutlinedTextFieldColors(),
-                            )
-                        }
-                        if (rule.canEditUserLimitMaxTriggers) {
-                            OutlinedTextField(
-                                value = userMaxText,
-                                onValueChange = { value ->
-                                    userMaxText = value.filter(Char::isDigit)
-                                    onUserLimitMaxTriggersChange(rule.id, userMaxText)
-                                },
-                                label = { Text("窗口内最大次数") },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                colors = workspaceOutlinedTextFieldColors(),
-                            )
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            if (rule.canEditUserLimitWindowSeconds) {
+                                OutlinedTextField(
+                                    value = userWindowText,
+                                    onValueChange = { value ->
+                                        userWindowText = value.filter(Char::isDigit)
+                                        onUserLimitWindowSecondsChange(rule.id, userWindowText)
+                                    },
+                                    label = { Text("每用户限流窗口") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    colors = workspaceOutlinedTextFieldColors(),
+                                )
+                            }
+                            if (rule.canEditUserLimitMaxTriggers) {
+                                OutlinedTextField(
+                                    value = userMaxText,
+                                    onValueChange = { value ->
+                                        userMaxText = value.filter(Char::isDigit)
+                                        onUserLimitMaxTriggersChange(rule.id, userMaxText)
+                                    },
+                                    label = { Text("窗口内最大次数") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    colors = workspaceOutlinedTextFieldColors(),
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            if (mode == RuleEditorMode.BLUETOOTH && rule.canEditGuardWaveforms) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "舰队专属波形（可选覆盖）",
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    rule.guardWaveforms.forEach { item ->
-                        GuardWaveformField(
-                            item = item,
-                            waveformOptions = rule.waveformOptions,
-                            onSelected = { waveformId ->
-                                onGuardWaveformChange(rule.id, item.guardLevel, waveformId)
-                            },
+                if (mode == RuleEditorMode.BLUETOOTH && rule.canEditGuardWaveforms) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "舰队专属波形（可选覆盖）",
+                            style = MaterialTheme.typography.titleSmall,
                         )
+                        rule.guardWaveforms.forEach { item ->
+                            GuardWaveformField(
+                                item = item,
+                                waveformOptions = rule.waveformOptions,
+                                onSelected = { waveformId ->
+                                    onGuardWaveformChange(rule.id, item.guardLevel, waveformId)
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -1026,6 +1025,9 @@ private enum class EventStudioTab(val label: String) {
 private fun parseEventType(name: String): LiveEventType? =
     runCatching { LiveEventType.valueOf(name) }.getOrNull()
 
+private fun LiveEventType.isSharedEventStudioRule(): Boolean =
+    isLikeFamily || isDanmakuFamily
+
 private fun CooldownScope.toDisplayLabel(): String =
     when (this) {
         CooldownScope.GLOBAL -> "全局冷却"
@@ -1038,6 +1040,36 @@ private fun Int.toGuardLevelLabel(): String =
         2 -> "提督及以上"
         3 -> "舰长及以上"
         else -> "不限"
+    }
+
+private fun List<UiRuleItem>.sortedForEventStudio(): List<UiRuleItem> {
+    if (isEmpty() || first().eventType != LiveEventType.GIFT) {
+        return this
+    }
+    // 礼物事件需要按固定槽位顺序展示，方便和桌面端的 command_one ~ command_ten 对齐。
+    return withIndex()
+        .sortedWith(
+            compareBy<IndexedValue<UiRuleItem>>(
+                { it.value.selectedCommandSlot.toCommandSlotOrder() },
+                { it.index },
+            ),
+        )
+        .map { it.value }
+}
+
+private fun String.toCommandSlotOrder(): Int =
+    when (this) {
+        "command_one" -> 1
+        "command_two" -> 2
+        "command_three" -> 3
+        "command_four" -> 4
+        "command_five" -> 5
+        "command_six" -> 6
+        "command_seven" -> 7
+        "command_eight" -> 8
+        "command_nine" -> 9
+        "command_ten" -> 10
+        else -> Int.MAX_VALUE
     }
 
 private const val SHARED_LIKE_KEY = "like"

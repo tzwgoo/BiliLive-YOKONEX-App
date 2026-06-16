@@ -59,7 +59,7 @@ fun DashboardWorkspaceScreen(
     ) {
         item {
             WorkspacePageHeader(
-                title = "直播互动监听控制台",
+                title = "直播互动主页",
                 statusLabel = dashboardState.serviceStatusLabel,
             )
         }
@@ -243,12 +243,21 @@ private fun DashboardSummarySection(
                 }
             }
         } else {
+            // 手机端摘要卡片固定为 2 x 3，避免单列列表把首屏空间拉得过长。
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                metrics.forEach { (label, value) ->
-                    WorkspaceMetricCard(
-                        label = label,
-                        value = value.ifBlank { "-" },
-                    )
+                metrics.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        rowItems.forEach { (label, value) ->
+                            WorkspaceMetricCard(
+                                label = label,
+                                value = value.ifBlank { "-" },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -272,128 +281,97 @@ private fun ConnectionAndDevicesSection(
     WorkspaceCard {
         BoxWithConstraints {
             val compact = maxWidth < 560.dp
-            FilterChipGroup(
+            // 连接与设备区包含模式切换、蓝牙设备列表和 IM 登录表单，
+            // 手机端必须按纵向流程排布，避免 Box 叠层把后面的连接表单盖住。
+            Column(
                 modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                FilterChip(
-                    selected = uiState.outputMode == OutputMode.BLUETOOTH,
-                    onClick = { onOutputModeChange(OutputMode.BLUETOOTH) },
-                    label = { Text("蓝牙 EMS") },
-                    colors = workspaceFilterChipColors(),
-                )
-                FilterChip(
-                    selected = uiState.outputMode == OutputMode.WEBSOCKET,
-                    onClick = { onOutputModeChange(OutputMode.WEBSOCKET) },
-                    label = { Text("IM 指令") },
-                    colors = workspaceFilterChipColors(),
-                )
-            }
-
-            if (uiState.outputMode == OutputMode.BLUETOOTH) {
                 FilterChipGroup(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     FilterChip(
-                        selected = !uiState.bluetoothMixModeEnabled,
-                        onClick = { onBluetoothMixModeChange(false) },
-                        label = { Text("串行") },
+                        selected = uiState.outputMode == OutputMode.BLUETOOTH,
+                        onClick = { onOutputModeChange(OutputMode.BLUETOOTH) },
+                        label = { Text("蓝牙 EMS") },
                         colors = workspaceFilterChipColors(),
                     )
                     FilterChip(
-                        selected = uiState.bluetoothMixModeEnabled,
-                        onClick = { onBluetoothMixModeChange(true) },
-                        label = { Text("混波") },
+                        selected = uiState.outputMode == OutputMode.WEBSOCKET,
+                        onClick = { onOutputModeChange(OutputMode.WEBSOCKET) },
+                        label = { Text("IM 指令") },
                         colors = workspaceFilterChipColors(),
                     )
-                    StatusPill(label = "最近设备 ${uiState.recentBluetoothDeviceLabel}")
                 }
-                if (compact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(
-                            onClick = onScanBluetoothDevices,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = workspaceFilledButtonColors(),
-                        ) {
-                            Text("扫描设备")
-                        }
-                        OutlinedButton(
-                            onClick = onDisconnectBluetoothDevice,
-                            enabled = uiState.canDisconnectBluetooth,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = workspaceOutlinedButtonColors(),
-                        ) {
-                            Text("断开设备")
-                        }
-                    }
-                } else {
-                    Row(
+
+                if (uiState.outputMode == OutputMode.BLUETOOTH) {
+                    FilterChipGroup(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Button(
-                            onClick = onScanBluetoothDevices,
-                            colors = workspaceFilledButtonColors(),
-                        ) {
-                            Text("扫描设备")
+                        FilterChip(
+                            selected = !uiState.bluetoothMixModeEnabled,
+                            onClick = { onBluetoothMixModeChange(false) },
+                            label = { Text("串行") },
+                            colors = workspaceFilterChipColors(),
+                        )
+                        FilterChip(
+                            selected = uiState.bluetoothMixModeEnabled,
+                            onClick = { onBluetoothMixModeChange(true) },
+                            label = { Text("混波") },
+                            colors = workspaceFilterChipColors(),
+                        )
+                        StatusPill(label = "最近设备 ${uiState.recentBluetoothDeviceLabel}")
+                    }
+                    if (compact) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(
+                                onClick = onScanBluetoothDevices,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = workspaceFilledButtonColors(),
+                            ) {
+                                Text("扫描设备")
+                            }
+                            OutlinedButton(
+                                onClick = onDisconnectBluetoothDevice,
+                                enabled = uiState.canDisconnectBluetooth,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = workspaceOutlinedButtonColors(),
+                            ) {
+                                Text("断开设备")
+                            }
                         }
-                        OutlinedButton(
-                            onClick = onDisconnectBluetoothDevice,
-                            enabled = uiState.canDisconnectBluetooth,
-                            colors = workspaceOutlinedButtonColors(),
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text("断开设备")
+                            Button(
+                                onClick = onScanBluetoothDevices,
+                                colors = workspaceFilledButtonColors(),
+                            ) {
+                                Text("扫描设备")
+                            }
+                            OutlinedButton(
+                                onClick = onDisconnectBluetoothDevice,
+                                enabled = uiState.canDisconnectBluetooth,
+                                colors = workspaceOutlinedButtonColors(),
+                            ) {
+                                Text("断开设备")
+                            }
                         }
                     }
-                }
-                if (!uiState.bluetoothErrorMessage.isNullOrBlank()) {
-                    Text(
-                        text = uiState.bluetoothErrorMessage,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    uiState.bluetoothDevices.forEach { device ->
-                        WorkspaceCard {
-                            if (compact) {
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text(
-                                        text = device.name,
-                                        style = MaterialTheme.typography.titleSmall,
-                                    )
-                                    Text(
-                                        text = "协议 ${device.protocol}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    if (device.connected) {
-                                        StatusPill(label = "已连接")
-                                    } else {
-                                        Button(
-                                            onClick = { onConnectBluetoothDevice(device.id) },
-                                            enabled = uiState.canConnectBluetooth(device.id),
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = workspaceFilledButtonColors(),
-                                        ) {
-                                            Text(
-                                                if (uiState.connectingBluetoothDeviceId == device.id) {
-                                                    "连接中..."
-                                                } else {
-                                                    "连接"
-                                                },
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier.weight(1f),
-                                    ) {
+                    if (!uiState.bluetoothErrorMessage.isNullOrBlank()) {
+                        Text(
+                            text = uiState.bluetoothErrorMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        uiState.bluetoothDevices.forEach { device ->
+                            WorkspaceCard {
+                                if (compact) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Text(
                                             text = device.name,
                                             style = MaterialTheme.typography.titleSmall,
@@ -403,125 +381,163 @@ private fun ConnectionAndDevicesSection(
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
+                                        if (device.connected) {
+                                            StatusPill(label = "已连接")
+                                        } else {
+                                            Button(
+                                                onClick = { onConnectBluetoothDevice(device.id) },
+                                                enabled = uiState.canConnectBluetooth(device.id),
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = workspaceFilledButtonColors(),
+                                            ) {
+                                                Text(
+                                                    if (uiState.connectingBluetoothDeviceId == device.id) {
+                                                        "连接中..."
+                                                    } else {
+                                                        "连接"
+                                                    },
+                                                )
+                                            }
+                                        }
                                     }
-                                    if (device.connected) {
-                                        StatusPill(label = "已连接")
-                                    } else {
-                                        Button(
-                                            onClick = { onConnectBluetoothDevice(device.id) },
-                                            enabled = uiState.canConnectBluetooth(device.id),
-                                            colors = workspaceFilledButtonColors(),
+                                } else {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.weight(1f),
                                         ) {
                                             Text(
-                                                if (uiState.connectingBluetoothDeviceId == device.id) {
-                                                    "连接中..."
-                                                } else {
-                                                    "连接"
-                                                },
+                                                text = device.name,
+                                                style = MaterialTheme.typography.titleSmall,
                                             )
+                                            Text(
+                                                text = "协议 ${device.protocol}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        if (device.connected) {
+                                            StatusPill(label = "已连接")
+                                        } else {
+                                            Button(
+                                                onClick = { onConnectBluetoothDevice(device.id) },
+                                                enabled = uiState.canConnectBluetooth(device.id),
+                                                colors = workspaceFilledButtonColors(),
+                                            ) {
+                                                Text(
+                                                    if (uiState.connectingBluetoothDeviceId == device.id) {
+                                                        "连接中..."
+                                                    } else {
+                                                        "连接"
+                                                    },
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            } else {
-                OutlinedTextField(
-                    value = uiState.socketEndpoint,
-                    onValueChange = onSocketEndpointChange,
-                    label = { Text("WS URL") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    colors = workspaceOutlinedTextFieldColors(),
-                )
-                if (compact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(
-                            value = uiState.socketUid,
-                            onValueChange = onSocketUidChange,
-                            label = { Text("UID") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            colors = workspaceOutlinedTextFieldColors(),
-                        )
-                        OutlinedTextField(
-                            value = uiState.socketToken,
-                            onValueChange = onSocketTokenChange,
-                            label = { Text("TOKEN") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            colors = workspaceOutlinedTextFieldColors(),
-                        )
-                    }
                 } else {
-                    Row(
+                    OutlinedTextField(
+                        value = uiState.socketEndpoint,
+                        onValueChange = onSocketEndpointChange,
+                        label = { Text("WS URL") },
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        OutlinedTextField(
-                            value = uiState.socketUid,
-                            onValueChange = onSocketUidChange,
-                            label = { Text("UID") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            colors = workspaceOutlinedTextFieldColors(),
-                        )
-                        OutlinedTextField(
-                            value = uiState.socketToken,
-                            onValueChange = onSocketTokenChange,
-                            label = { Text("TOKEN") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            colors = workspaceOutlinedTextFieldColors(),
-                        )
-                    }
-                }
-                if (compact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(
-                            onClick = onConnectCommandChannel,
-                            enabled = uiState.canConnectSocket,
+                        singleLine = true,
+                        colors = workspaceOutlinedTextFieldColors(),
+                    )
+                    if (compact) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(
+                                value = uiState.socketUid,
+                                onValueChange = onSocketUidChange,
+                                label = { Text("UID") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = workspaceOutlinedTextFieldColors(),
+                            )
+                            OutlinedTextField(
+                                value = uiState.socketToken,
+                                onValueChange = onSocketTokenChange,
+                                label = { Text("TOKEN") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = workspaceOutlinedTextFieldColors(),
+                            )
+                        }
+                    } else {
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = workspaceFilledButtonColors(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text("登录指令通道")
+                            OutlinedTextField(
+                                value = uiState.socketUid,
+                                onValueChange = onSocketUidChange,
+                                label = { Text("UID") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                colors = workspaceOutlinedTextFieldColors(),
+                            )
+                            OutlinedTextField(
+                                value = uiState.socketToken,
+                                onValueChange = onSocketTokenChange,
+                                label = { Text("TOKEN") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                colors = workspaceOutlinedTextFieldColors(),
+                            )
                         }
-                        OutlinedButton(
-                            onClick = onDisconnectCommandChannel,
-                            enabled = uiState.canDisconnectSocket,
+                    }
+                    if (compact) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(
+                                onClick = onConnectCommandChannel,
+                                enabled = uiState.canConnectSocket,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = workspaceFilledButtonColors(),
+                            ) {
+                                Text("登录指令通道")
+                            }
+                            OutlinedButton(
+                                onClick = onDisconnectCommandChannel,
+                                enabled = uiState.canDisconnectSocket,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = workspaceOutlinedButtonColors(),
+                            ) {
+                                Text("退出指令通道")
+                            }
+                        }
+                    } else {
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = workspaceOutlinedButtonColors(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text("退出指令通道")
+                            Button(
+                                onClick = onConnectCommandChannel,
+                                enabled = uiState.canConnectSocket,
+                                colors = workspaceFilledButtonColors(),
+                            ) {
+                                Text("登录指令通道")
+                            }
+                            OutlinedButton(
+                                onClick = onDisconnectCommandChannel,
+                                enabled = uiState.canDisconnectSocket,
+                                colors = workspaceOutlinedButtonColors(),
+                            ) {
+                                Text("退出指令通道")
+                            }
                         }
                     }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Button(
-                            onClick = onConnectCommandChannel,
-                            enabled = uiState.canConnectSocket,
-                            colors = workspaceFilledButtonColors(),
-                        ) {
-                            Text("登录指令通道")
-                        }
-                        OutlinedButton(
-                            onClick = onDisconnectCommandChannel,
-                            enabled = uiState.canDisconnectSocket,
-                            colors = workspaceOutlinedButtonColors(),
-                        ) {
-                            Text("退出指令通道")
-                        }
-                    }
+                    Text(
+                        text = uiState.websocketDetailText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                Text(
-                    text = uiState.websocketDetailText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
@@ -570,12 +586,21 @@ private fun RuntimeSnapshotSection(
                 }
             }
         } else {
+            // 运行快照与顶部摘要保持相同的手机端双列节奏，避免再次退回单列长列表。
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                runtimeCards.forEach { (label, value) ->
-                    WorkspaceMetricCard(
-                        label = label,
-                        value = value.ifBlank { "-" },
-                    )
+                runtimeCards.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        rowItems.forEach { (label, value) ->
+                            WorkspaceMetricCard(
+                                label = label,
+                                value = value.ifBlank { "-" },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
             }
         }

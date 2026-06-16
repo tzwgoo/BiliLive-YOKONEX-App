@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yokonex.bililive.app.ui.components.StatusPill
 import com.yokonex.bililive.app.ui.components.WorkspaceCard
-import com.yokonex.bililive.app.ui.components.WorkspaceMetricCard
 import com.yokonex.bililive.app.ui.components.WorkspacePageHeader
 import com.yokonex.bililive.app.ui.components.workspaceFilledButtonColors
 import com.yokonex.bililive.app.ui.components.workspaceOutlinedButtonColors
@@ -67,7 +66,6 @@ fun WaveformStudioScreen(
                 ) {
                     item {
                         WaveformHero(
-                            uiState = uiState,
                             outputState = outputState,
                             onCreateWaveform = onCreateWaveform,
                         )
@@ -114,7 +112,6 @@ fun WaveformStudioScreen(
             ) {
                 item {
                     WaveformHero(
-                        uiState = uiState,
                         outputState = outputState,
                         onCreateWaveform = onCreateWaveform,
                     )
@@ -188,55 +185,14 @@ fun WaveformStudioScreen(
 
 @Composable
 private fun WaveformHero(
-    uiState: WaveformsUiState,
     outputState: OutputConfigUiState,
     onCreateWaveform: () -> Unit,
 ) {
     WorkspaceCard {
-        WorkspacePageHeader(title = "波形库")
-        BoxWithConstraints {
-            val compact = maxWidth < 560.dp
-            if (compact) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // 顶部统计区在手机端改成纵向节奏，避免状态和指标互相挤压。
-                    WorkspaceMetricCard(
-                        label = "当前波形",
-                        value = uiState.waveforms.size.toString(),
-                    )
-                    WorkspaceMetricCard(
-                        label = "可编辑",
-                        value = uiState.waveforms.count { !it.builtin }.toString(),
-                    )
-                    StatusPill(
-                        label = if (outputState.canDisconnectBluetooth) "蓝牙已连接" else "蓝牙未连接",
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        WorkspaceMetricCard(
-                            label = "当前波形",
-                            value = uiState.waveforms.size.toString(),
-                            modifier = Modifier.weight(1f),
-                        )
-                        WorkspaceMetricCard(
-                            label = "可编辑",
-                            value = uiState.waveforms.count { !it.builtin }.toString(),
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    StatusPill(
-                        label = if (outputState.canDisconnectBluetooth) "蓝牙已连接" else "蓝牙未连接",
-                    )
-                }
-            }
-        }
+        WorkspacePageHeader(
+            title = "波形库",
+            statusLabel = if (outputState.canDisconnectBluetooth) "蓝牙已连接" else "蓝牙未连接",
+        )
         Button(
             onClick = onCreateWaveform,
             modifier = Modifier.fillMaxWidth(),
@@ -322,136 +278,143 @@ private fun WaveformEditorWorkspace(
     WorkspaceCard {
         BoxWithConstraints {
             val compact = maxWidth < 620.dp
-            if (compact) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(
-                        onClick = onCloseEditor,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = workspaceOutlinedButtonColors(),
-                    ) {
-                        Text("返回列表")
-                    }
-                    OutlinedButton(
-                        onClick = onDuplicateSelectedWaveform,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = workspaceOutlinedButtonColors(),
-                    ) {
-                        Text("复制为自定义")
-                    }
-                    Button(
-                        onClick = onSaveDraft,
-                        enabled = editable,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = workspaceFilledButtonColors(),
-                    ) {
-                        Text("保存波形")
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = onCloseEditor,
-                        colors = workspaceOutlinedButtonColors(),
-                    ) {
-                        Text("返回列表")
-                    }
-                    OutlinedButton(
-                        onClick = onDuplicateSelectedWaveform,
-                        colors = workspaceOutlinedButtonColors(),
-                    ) {
-                        Text("复制为自定义")
-                    }
-                    Button(
-                        onClick = onSaveDraft,
-                        enabled = editable,
-                        colors = workspaceFilledButtonColors(),
-                    ) {
-                        Text("保存波形")
-                    }
-                }
-            }
-            Text(
-                text = uiState.editorMessage.ifBlank { "拖动画布上的控制点即可调整 A / B 通道强度。" },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = draft.name,
-                onValueChange = onWaveformNameChange,
-                label = { Text("波形名称") },
+            // 波形编辑区必须按纵向流程排开，否则 Box 会把操作栏、画布和步骤卡片
+            // 堆到同一层，手机端看起来就像元素被挤没了。
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = editable,
-                singleLine = true,
-                colors = workspaceOutlinedTextFieldColors(),
-            )
-            WaveformActionGroup(compact = compact) {
-                Button(
-                    onClick = onAppendStep,
-                    enabled = editable,
-                    colors = workspaceFilledButtonColors(),
-                ) {
-                    Text("新增步骤")
-                }
-                OutlinedButton(
-                    onClick = onRemoveLastStep,
-                    enabled = editable && draft.steps.size > 1,
-                    colors = workspaceOutlinedButtonColors(),
-                ) {
-                    Text("减少步骤")
-                }
-                OutlinedButton(
-                    onClick = onRequestDeleteWaveform,
-                    enabled = editable,
-                    colors = workspaceOutlinedButtonColors(),
-                ) {
-                    Text("删除波形")
-                }
-            }
-            WaveformEditorCanvas(
-                waveform = draft,
-                editable = editable,
-                onStrengthDrag = onStrengthDrag,
-                onInsertStep = onInsertStep,
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                draft.steps.forEachIndexed { index, step ->
-                    WorkspaceCard {
-                        Text(
-                            text = "步骤 ${index + 1}",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        OutlinedTextField(
-                            value = step.durationMs.toString(),
-                            onValueChange = { value ->
-                                onUpdateStepDuration(index, value.filter(Char::isDigit).toIntOrNull() ?: 0)
-                            },
-                            label = { Text("时长 ms") },
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (compact) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(
+                            onClick = onCloseEditor,
                             modifier = Modifier.fillMaxWidth(),
+                            colors = workspaceOutlinedButtonColors(),
+                        ) {
+                            Text("返回列表")
+                        }
+                        OutlinedButton(
+                            onClick = onDuplicateSelectedWaveform,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = workspaceOutlinedButtonColors(),
+                        ) {
+                            Text("复制为自定义")
+                        }
+                        Button(
+                            onClick = onSaveDraft,
                             enabled = editable,
-                            singleLine = true,
-                            colors = workspaceOutlinedTextFieldColors(),
-                        )
-                        Text(
-                            text = "A ${step.channelA} / B ${step.channelB}",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        WaveformActionGroup(compact = compact) {
-                            OutlinedButton(
-                                onClick = { onDuplicateStep(index) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = workspaceFilledButtonColors(),
+                        ) {
+                            Text("保存波形")
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = onCloseEditor,
+                            colors = workspaceOutlinedButtonColors(),
+                        ) {
+                            Text("返回列表")
+                        }
+                        OutlinedButton(
+                            onClick = onDuplicateSelectedWaveform,
+                            colors = workspaceOutlinedButtonColors(),
+                        ) {
+                            Text("复制为自定义")
+                        }
+                        Button(
+                            onClick = onSaveDraft,
+                            enabled = editable,
+                            colors = workspaceFilledButtonColors(),
+                        ) {
+                            Text("保存波形")
+                        }
+                    }
+                }
+                Text(
+                    text = uiState.editorMessage.ifBlank { "拖动画布上的控制点即可调整 A / B 通道强度。" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = draft.name,
+                    onValueChange = onWaveformNameChange,
+                    label = { Text("波形名称") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = editable,
+                    singleLine = true,
+                    colors = workspaceOutlinedTextFieldColors(),
+                )
+                WaveformActionGroup(compact = compact) {
+                    Button(
+                        onClick = onAppendStep,
+                        enabled = editable,
+                        colors = workspaceFilledButtonColors(),
+                    ) {
+                        Text("新增步骤")
+                    }
+                    OutlinedButton(
+                        onClick = onRemoveLastStep,
+                        enabled = editable && draft.steps.size > 1,
+                        colors = workspaceOutlinedButtonColors(),
+                    ) {
+                        Text("减少步骤")
+                    }
+                    OutlinedButton(
+                        onClick = onRequestDeleteWaveform,
+                        enabled = editable,
+                        colors = workspaceOutlinedButtonColors(),
+                    ) {
+                        Text("删除波形")
+                    }
+                }
+                WaveformEditorCanvas(
+                    waveform = draft,
+                    editable = editable,
+                    onStrengthDrag = onStrengthDrag,
+                    onInsertStep = onInsertStep,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    draft.steps.forEachIndexed { index, step ->
+                        WorkspaceCard {
+                            Text(
+                                text = "步骤 ${index + 1}",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            OutlinedTextField(
+                                value = step.durationMs.toString(),
+                                onValueChange = { value ->
+                                    onUpdateStepDuration(index, value.filter(Char::isDigit).toIntOrNull() ?: 0)
+                                },
+                                label = { Text("时长 ms") },
+                                modifier = Modifier.fillMaxWidth(),
                                 enabled = editable,
-                                colors = workspaceOutlinedButtonColors(),
-                            ) {
-                                Text("复制当前步骤")
-                            }
-                            OutlinedButton(
-                                onClick = { onDeleteStep(index) },
-                                enabled = editable,
-                                colors = workspaceOutlinedButtonColors(),
-                            ) {
-                                Text("删除当前步骤")
+                                singleLine = true,
+                                colors = workspaceOutlinedTextFieldColors(),
+                            )
+                            Text(
+                                text = "A ${step.channelA} / B ${step.channelB}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            WaveformActionGroup(compact = compact) {
+                                OutlinedButton(
+                                    onClick = { onDuplicateStep(index) },
+                                    enabled = editable,
+                                    colors = workspaceOutlinedButtonColors(),
+                                ) {
+                                    Text("复制当前步骤")
+                                }
+                                OutlinedButton(
+                                    onClick = { onDeleteStep(index) },
+                                    enabled = editable,
+                                    colors = workspaceOutlinedButtonColors(),
+                                ) {
+                                    Text("删除当前步骤")
+                                }
                             }
                         }
                     }

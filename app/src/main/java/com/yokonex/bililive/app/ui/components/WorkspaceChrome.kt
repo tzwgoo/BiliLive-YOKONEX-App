@@ -109,6 +109,7 @@ fun WorkspacePageHeader(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 if (!statusLabel.isNullOrBlank()) {
                     StatusPill(label = statusLabel)
@@ -127,6 +128,7 @@ fun WorkspacePageHeader(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.headlineLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
                 if (!statusLabel.isNullOrBlank()) {
@@ -155,6 +157,7 @@ fun WorkspaceSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -177,6 +180,7 @@ fun WorkspaceMetricCard(
             Text(
                 text = value,
                 style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
         }
     }
@@ -191,6 +195,8 @@ fun WorkspaceCard(
         modifier = modifier,
         colors = CardDefaults.cardColors(
             containerColor = Color(0xF2160D1C),
+            // 工作台卡片统一使用浅色前景，避免默认内容色回退成黑字。
+            contentColor = MaterialTheme.colorScheme.onSurface,
         ),
         border = BorderStroke(1.dp, Color(0x33D98AA8)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -335,6 +341,7 @@ private fun WorkspaceSidebarBrand(compact: Boolean) {
                 text = "BiliLive YOKONEX",
                 style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 text = "直播互动控制台",

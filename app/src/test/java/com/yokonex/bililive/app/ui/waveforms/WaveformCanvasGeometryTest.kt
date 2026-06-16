@@ -39,6 +39,20 @@ class WaveformCanvasGeometryTest {
     }
 
     @Test
+    fun resolveDragTarget_canMatchLaterStepWhenXFallsInLaterSegment() {
+        val target = resolveDragTarget(
+            x = 690f,
+            y = 120f,
+            segmentWidths = listOf(120f, 120f, 120f, 120f, 120f, 120f, 120f),
+            channelAYs = List(7) { 120f },
+            channelBYs = List(7) { 120f },
+            handleRadius = 24f,
+        )
+
+        assertEquals(WaveformDragTarget(stepIndex = 5, channel = WaveformChannel.B), target)
+    }
+
+    @Test
     fun resolveDragTarget_returnsNullWhenNoSegments() {
         val target = resolveDragTarget(
             x = 20f,

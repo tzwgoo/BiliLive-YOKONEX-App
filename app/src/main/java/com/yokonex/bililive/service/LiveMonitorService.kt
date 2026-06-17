@@ -14,13 +14,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 class LiveMonitorService : Service() {
     private lateinit var notificationFactory: NotificationFactory
     private lateinit var wakeLockController: MonitoringWakeLockController
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var hasEnteredForeground: Boolean = false
+    private var stopRequestedByUser: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -44,7 +47,13 @@ class LiveMonitorService : Service() {
         flags: Int,
         startId: Int,
     ): Int {
+        val settingsStore = AppServices.container?.settingsStore
         if (intent?.action == ACTION_STOP) {
+            stopRequestedByUser = true
+            runBlocking {
+                settingsStore?.updateMonitoringActive(false)
+            }
+            MonitoringRecoveryScheduler.cancel(applicationContext)
             serviceScope.launch {
                 AppServices.container?.serviceCoordinator?.stop()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -53,10 +62,20 @@ class LiveMonitorService : Service() {
             return START_NOT_STICKY
         }
 
-        val roomId = intent?.getStringExtra(EXTRA_ROOM_ID).orEmpty()
+        val persistedRoomId = runBlocking { settingsStore?.roomId?.first().orEmpty() }
+        val persistedOutputMode = runBlocking { settingsStore?.outputMode?.first() ?: OutputMode.BLUETOOTH }
+        val roomId = intent?.getStringExtra(EXTRA_ROOM_ID)
+            ?.takeIf(String::isNotBlank)
+            ?: persistedRoomId
         val outputMode = intent?.getStringExtra(EXTRA_OUTPUT_MODE)
             ?.let { name -> runCatching { OutputMode.valueOf(name) }.getOrNull() }
-            ?: OutputMode.BLUETOOTH
+            ?: persistedOutputMode
+        stopRequestedByUser = false
+        runBlocking {
+            // 这里记录的是“用户希望监听继续存在”的意图，供异常拉起和开机恢复共用。
+            settingsStore?.updateMonitoringActive(roomId.isNotBlank())
+        }
+        MonitoringRecoveryScheduler.cancel(applicationContext)
         ServiceCompat.startForeground(
             this,
             NotificationFactory.NOTIFICATION_ID,
@@ -77,9 +96,16 @@ class LiveMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        val shouldRecover = hasEnteredForeground &&
+            !stopRequestedByUser &&
+            runBlocking { AppServices.container?.settingsStore?.monitoringActive?.first() == true }
         super.onDestroy()
         wakeLockController.release()
         serviceScope.cancel()
+        if (shouldRecover) {
+            // 服务被系统回收时补一层兜底拉起，避免仅依赖 START_STICKY 导致恢复时机不稳定。
+            MonitoringRecoveryScheduler.schedule(applicationContext)
+        }
     }
 
     companion object {

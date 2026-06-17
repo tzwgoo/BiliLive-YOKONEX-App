@@ -9,10 +9,16 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.yokonex.bililive.app.ui.components.EventLogItem
 import com.yokonex.bililive.app.ui.components.StatusPill
 import com.yokonex.bililive.app.ui.components.WorkspaceCard
@@ -23,6 +29,7 @@ import com.yokonex.bililive.app.ui.components.workspaceFilledButtonColors
 import com.yokonex.bililive.app.ui.components.workspaceFilterChipColors
 import com.yokonex.bililive.app.ui.components.workspaceOutlinedButtonColors
 import com.yokonex.bililive.app.ui.components.workspaceOutlinedTextFieldColors
+import com.yokonex.bililive.app.ui.live.backgroundProtectionVendorLabel
 import com.yokonex.bililive.app.ui.live.LiveConfigUiState
 import com.yokonex.bililive.app.ui.logs.LogEventFilter
 import com.yokonex.bililive.app.ui.logs.LogsUiState
@@ -36,6 +43,11 @@ fun DashboardWorkspaceScreen(
     outputState: OutputConfigUiState,
     logsState: LogsUiState,
     onRoomIdChange: (String) -> Unit,
+    onRefreshBatteryOptimizationStatus: () -> Unit,
+    onRequestIgnoreBatteryOptimization: () -> Unit,
+    onOpenBatteryOptimizationSettings: () -> Unit,
+    onOpenManufacturerBackgroundSettings: () -> Unit,
+    onRestoreMonitoringOnBootChange: (Boolean) -> Unit,
     onToggleMonitoring: () -> Unit,
     onOutputModeChange: (OutputMode) -> Unit,
     onBluetoothMixModeChange: (Boolean) -> Unit,
@@ -50,6 +62,19 @@ fun DashboardWorkspaceScreen(
     onSelectLogFilter: (LogEventFilter) -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, onRefreshBatteryOptimizationStatus) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                onRefreshBatteryOptimizationStatus()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -121,6 +146,13 @@ fun DashboardWorkspaceScreen(
                             text = liveConfigState.monitoringSupportingText,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        BackgroundProtectionSection(
+                            liveConfigState = liveConfigState,
+                            onRequestIgnoreBatteryOptimization = onRequestIgnoreBatteryOptimization,
+                            onOpenBatteryOptimizationSettings = onOpenBatteryOptimizationSettings,
+                            onOpenManufacturerBackgroundSettings = onOpenManufacturerBackgroundSettings,
+                            onRestoreMonitoringOnBootChange = onRestoreMonitoringOnBootChange,
                         )
                     }
                 }
@@ -194,6 +226,87 @@ fun DashboardWorkspaceScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundProtectionSection(
+    liveConfigState: LiveConfigUiState,
+    onRequestIgnoreBatteryOptimization: () -> Unit,
+    onOpenBatteryOptimizationSettings: () -> Unit,
+    onOpenManufacturerBackgroundSettings: () -> Unit,
+    onRestoreMonitoringOnBootChange: (Boolean) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = "后台保活",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = liveConfigState.backgroundProtectionSummary,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            text = liveConfigState.backgroundProtectionHint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = "开机恢复监听",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = "手机重启后按上次监听状态自动恢复。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = liveConfigState.restoreMonitoringOnBootEnabled,
+                onCheckedChange = onRestoreMonitoringOnBootChange,
+            )
+        }
+        Text(
+            text = "息屏保活：${liveConfigState.batteryOptimizationStatus}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = liveConfigState.batteryOptimizationHint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (liveConfigState.shouldShowBatteryOptimizationAction) {
+            Button(
+                onClick = onRequestIgnoreBatteryOptimization,
+                modifier = Modifier.fillMaxWidth(),
+                colors = workspaceFilledButtonColors(),
+            ) {
+                Text("申请关闭电池优化")
+            }
+        }
+        TextButton(
+            onClick = onOpenBatteryOptimizationSettings,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("打开系统电池优化设置")
+        }
+        OutlinedButton(
+            onClick = onOpenManufacturerBackgroundSettings,
+            modifier = Modifier.fillMaxWidth(),
+            colors = workspaceOutlinedButtonColors(),
+        ) {
+            Text("打开${backgroundProtectionVendorLabel()}")
         }
     }
 }

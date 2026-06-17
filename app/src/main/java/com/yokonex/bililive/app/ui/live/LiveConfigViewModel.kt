@@ -81,6 +81,13 @@ class LiveConfigViewModel(
                     }
                 }
             }
+            viewModelScope.launch {
+                store.restoreMonitoringOnBootEnabled.collect { enabled ->
+                    _uiState.update { currentState ->
+                        currentState.copy(restoreMonitoringOnBootEnabled = enabled)
+                    }
+                }
+            }
         }
         ruleStore?.let { store ->
             viewModelScope.launch {
@@ -135,6 +142,18 @@ class LiveConfigViewModel(
         }
         viewModelScope.launch {
             settingsStore.updateAutoReconnectEnabled(enabled)
+        }
+    }
+
+    fun toggleRestoreMonitoringOnBoot(enabled: Boolean) {
+        if (settingsStore == null) {
+            _uiState.update { currentState ->
+                currentState.copy(restoreMonitoringOnBootEnabled = enabled)
+            }
+            return
+        }
+        viewModelScope.launch {
+            settingsStore.updateRestoreMonitoringOnBootEnabled(enabled)
         }
     }
 
@@ -356,6 +375,7 @@ data class LiveConfigUiState(
     val autoReconnect: Boolean = true,
     val reconnectIntervalSeconds: String = "8",
     val giftTriggerMode: GiftTriggerMode = GiftTriggerMode.SINGLE,
+    val restoreMonitoringOnBootEnabled: Boolean = true,
     val likeMultiple: String = DEFAULT_LIKE_MULTIPLE.toString(),
     val danmakuEnabled: Boolean = false,
     val danmakuKeywords: String = "",
@@ -406,6 +426,24 @@ data class LiveConfigUiState(
 
     val shouldShowBatteryOptimizationAction: Boolean
         get() = batteryOptimizationSupported && !batteryOptimizationIgnored
+
+    val backgroundProtectionSummary: String
+        get() = buildString {
+            append("前台服务 + 唤醒锁")
+            if (autoReconnect) {
+                append(" + 自动重连")
+            }
+            if (restoreMonitoringOnBootEnabled) {
+                append(" + 开机恢复")
+            }
+        }
+
+    val backgroundProtectionHint: String
+        get() = if (restoreMonitoringOnBootEnabled) {
+            "应用会记住上一次监听状态，重启手机后在系统允许的情况下自动恢复监听。"
+        } else {
+            "当前仅在本次开机周期内维持前台监听，重启设备后不会自动恢复。"
+        }
 
     val giftTriggerModeLabel: String
         get() = when (giftTriggerMode) {

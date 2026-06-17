@@ -3,6 +3,7 @@ package com.yokonex.bililive.app.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -11,6 +12,7 @@ import androidx.navigation.compose.rememberNavController
 import com.yokonex.bililive.app.ui.components.WorkspaceShell
 import com.yokonex.bililive.app.ui.dashboard.DashboardViewModel
 import com.yokonex.bililive.app.ui.dashboard.DashboardWorkspaceScreen
+import com.yokonex.bililive.app.ui.live.BatteryOptimizationNavigator
 import com.yokonex.bililive.app.ui.events.EventStudioScreen
 import com.yokonex.bililive.app.ui.live.LiveConfigViewModel
 import com.yokonex.bililive.app.ui.logs.LogsViewModel
@@ -47,6 +49,7 @@ fun AppNavGraph() {
         ) {
             composable("dashboard") {
                 // 主控台复用多个 ViewModel 的状态，将监听、连接和日志聚合成桌面端同款工作区。
+                val context = LocalContext.current
                 val dashboardViewModel: DashboardViewModel = viewModel()
                 val liveConfigViewModel: LiveConfigViewModel = viewModel()
                 val outputConfigViewModel: OutputConfigViewModel = viewModel()
@@ -62,6 +65,17 @@ fun AppNavGraph() {
                     outputState = outputState,
                     logsState = logsState,
                     onRoomIdChange = liveConfigViewModel::updateRoomId,
+                    onRefreshBatteryOptimizationStatus = liveConfigViewModel::refreshBatteryOptimizationStatus,
+                    onRequestIgnoreBatteryOptimization = {
+                        BatteryOptimizationNavigator.openIgnoreRequest(context)
+                    },
+                    onOpenBatteryOptimizationSettings = {
+                        BatteryOptimizationNavigator.openSettings(context)
+                    },
+                    onOpenManufacturerBackgroundSettings = {
+                        BatteryOptimizationNavigator.openManufacturerBackgroundSettings(context)
+                    },
+                    onRestoreMonitoringOnBootChange = liveConfigViewModel::toggleRestoreMonitoringOnBoot,
                     onToggleMonitoring = liveConfigViewModel::toggleMonitoring,
                     onOutputModeChange = outputConfigViewModel::selectMode,
                     onBluetoothMixModeChange = outputConfigViewModel::updateBluetoothMixMode,

@@ -84,6 +84,18 @@ class SettingsStore(
                 ?: GiftTriggerMode.SINGLE
         }
 
+    val restoreMonitoringOnBootEnabled: Flow<Boolean> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { preferences ->
+            preferences[RESTORE_MONITORING_ON_BOOT_ENABLED]?.toBooleanStrictOrNull() ?: true
+        }
+
+    val monitoringActive: Flow<Boolean> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { preferences ->
+            preferences[MONITORING_ACTIVE]?.toBooleanStrictOrNull() ?: false
+        }
+
     suspend fun updateRoomId(value: String) {
         dataStore.edit { preferences ->
             preferences[ROOM_ID] = value
@@ -158,6 +170,18 @@ class SettingsStore(
         }
     }
 
+    suspend fun updateRestoreMonitoringOnBootEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[RESTORE_MONITORING_ON_BOOT_ENABLED] = enabled.toString()
+        }
+    }
+
+    suspend fun updateMonitoringActive(active: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[MONITORING_ACTIVE] = active.toString()
+        }
+    }
+
     suspend fun ensureDefaults() {
         dataStore.edit { preferences ->
             if (!preferences.contains(ROOM_ID)) {
@@ -187,6 +211,12 @@ class SettingsStore(
             if (!preferences.contains(GIFT_TRIGGER_MODE)) {
                 preferences[GIFT_TRIGGER_MODE] = GiftTriggerMode.SINGLE.name
             }
+            if (!preferences.contains(RESTORE_MONITORING_ON_BOOT_ENABLED)) {
+                preferences[RESTORE_MONITORING_ON_BOOT_ENABLED] = true.toString()
+            }
+            if (!preferences.contains(MONITORING_ACTIVE)) {
+                preferences[MONITORING_ACTIVE] = false.toString()
+            }
         }
     }
 
@@ -203,5 +233,7 @@ class SettingsStore(
         val RECONNECT_INTERVAL_SECONDS = stringPreferencesKey("reconnect_interval_seconds")
         val AUTO_RECONNECT_ENABLED = stringPreferencesKey("auto_reconnect_enabled")
         val GIFT_TRIGGER_MODE = stringPreferencesKey("gift_trigger_mode")
+        val RESTORE_MONITORING_ON_BOOT_ENABLED = stringPreferencesKey("restore_monitoring_on_boot_enabled")
+        val MONITORING_ACTIVE = stringPreferencesKey("monitoring_active")
     }
 }
